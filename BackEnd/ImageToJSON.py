@@ -9,11 +9,9 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def createJSON(image_path):
-    with open(image_path, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode("ascii")
+def createJSON(imageBase64):
 
-    image_part = types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type="image/jpeg")
+    image_part = types.Part.from_bytes(data=base64.b64decode(imageBase64), mime_type="image/jpeg")
 
     JSON_TEMPLATE = """
     {
