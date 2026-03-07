@@ -1,0 +1,42 @@
+{
+    "hardware": {
+      "components": [
+        {
+          "id": "comp_1",
+          "type": "wire",
+          "start": { "row": "w", "col": 1 },
+          "end": { "row": "w", "col": 10 }
+        },
+        {
+          "id": "comp_2",
+          "type": "wire",
+          "start": { "row": "x", "col": 1 },
+          "end": { "row": "a", "col": 5 }
+        },
+        {
+          "id": "comp_3",
+          "type": "resistor",
+          "start": { "row": "a", "col": 5 },
+          "end": { "row": "a", "col": 9 }
+        },
+        {
+          "id": "comp_4",
+          "type": "led",
+          "start": { "row": "a", "col": 9 },
+          "end": { "row": "e", "col": 9 }
+        },
+        {
+          "id": "comp_5",
+          "type": "wire",
+          "start": { "row": "e", "col": 9 },
+          "end": { "row": "w", "col": 9 }
+        },
+        {
+          "id": "comp_6",
+          "type": "battery",
+          "start": { "row": "y", "col": 1 },
+          "end": { "row": "z", "col": 1 }
+        }
+      ]
+    }
+}
