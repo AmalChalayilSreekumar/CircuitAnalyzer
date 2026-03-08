@@ -1,0 +1,408 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useParams, useLocation } from 'react-router-dom';
+import { useAuth0 } from '@auth0/auth0-react';
+import CircuitCanvas from '../components/CircuitCanvas.jsx';
+import AIChatPanel from '../components/AIChatPanel.jsx';
+import { supabase } from '../utils/supabase.js';
+
+export default function PostPage() {
+  const { id } = useParams();
+  const location = useLocation();
+  const { user, isAuthenticated, loginWithRedirect, logout } = useAuth0();
+
+  const [supabaseUser, setSupabaseUser] = useState(null);
+  const [post, setPost]               = useState(null);
+  const [circuitJson, setCircuitJson] = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
+  const [saveStatus, setSaveStatus]     = useState(null); // 'saving' | 'saved' | 'error'
+  const [arduinoCode, setArduinoCode]   = useState('');
+  const codeTimerRef = useRef(null);
+
+  const [comments, setComments] = useState([]);
+
+  // Prevent the initial load from triggering a save
+  const isLoadedRef   = useRef(false);
+  const saveTimerRef  = useRef(null);
+
+  const [commentMode, setCommentMode] = useState(false);
+  const [chatOpen, setChatOpen]       = useState(false);
+  const [codeOpen, setCodeOpen]       = useState(false);
+
+  // ── Simulation state ────────────────────────────────────────────────────────
+  const [simulationStates, setSimulationStates] = useState(null);
+  const [simStatus, setSimStatus]               = useState('idle'); // 'idle'|'running'|'done'|'error'
+  const [simErrors, setSimErrors]               = useState([]);
+  const [simWarnings, setSimWarnings]           = useState([]);
+
+  // ── Sync Auth0 user to Supabase users table ──────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !user) { setSupabaseUser(null); return; }
+    async function syncUser() {
+      const { data: existing } = await supabase
+        .from('users')
+        .select()
+        .eq('auth0_user_id', user.sub)
+        .single();
+      if (existing) { setSupabaseUser(existing); return; }
+      const { data: created } = await supabase
+        .from('users')
+        .insert({ auth0_user_id: user.sub, email: user.email, username: user.nickname ?? user.name, is_pseudo_user: false })
+        .select()
+        .single();
+      if (created) setSupabaseUser(created);
+    }
+    syncUser();
+  }, [isAuthenticated, user]);
+
+  const isOwner = !!supabaseUser && !!post && supabaseUser.id === post.user_id;
+
+  async function runSimulation() {
+    if (!circuitJson) return;
+    setSimStatus('running');
+    setSimErrors([]);
+    setSimWarnings([]);
+    try {
+      const res = await fetch('http://localhost:8000/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          components: circuitJson?.hardware?.components ?? [],
+          arduino_code: arduinoCode,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      setSimulationStates(data.component_states);
+      setSimErrors(data.parse_errors ?? []);
+      setSimWarnings(data.warnings ?? []);
+      setSimStatus('done');
+    } catch (err) {
+      setSimErrors([err.message]);
+      setSimStatus('error');
+    }
+  }
+
+  function stopSimulation() {
+    setSimulationStates(null);
+    setSimStatus('idle');
+    setSimErrors([]);
+    setSimWarnings([]);
+  }
+
+  // ── Fetch post + comments from Supabase ─────────────────────────────────────
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+
+      const [postResult, commentsResult] = await Promise.all([
+        supabase
+          .from('circuit_posts')
+          .select('*')
+          .eq('id', id)
+          .single(),
+        supabase
+          .from('canvas_comments')
+          .select('*, user:user_id(*)')
+          .eq('post_id', id)
+          .order('created_at', { ascending: true }),
+      ]);
+
+      if (postResult.error) {
+        setError(postResult.error.message);
+      } else {
+        setPost(postResult.data);
+        isLoadedRef.current = false;
+        setCircuitJson(postResult.data.circuit_json);
+        setArduinoCode(postResult.data.arduino_code ?? '');
+        // Mark as loaded after the state update settles
+        setTimeout(() => { isLoadedRef.current = true; }, 0);
+      }
+
+      if (!commentsResult.error) {
+        setComments(commentsResult.data);
+      }
+
+      setLoading(false);
+    }
+    fetchData();
+  }, [id]);
+
+  // ── Auto re-run simulation when circuit changes while sim is active ─────────
+  const simStatusRef = useRef(simStatus);
+  useEffect(() => { simStatusRef.current = simStatus; }, [simStatus]);
+
+  useEffect(() => {
+    if (!isLoadedRef.current || circuitJson === null) return;
+    if (simStatusRef.current === 'done') {
+      runSimulation();
+    }
+  }, [circuitJson]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Debounced save of circuit_json ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isLoadedRef.current || circuitJson === null || !isOwner) return;
+
+    setSaveStatus('saving');
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      const { error: err } = await supabase
+        .from('circuit_posts')
+        .update({ circuit_json: circuitJson })
+        .eq('id', id);
+
+      setSaveStatus(err ? 'error' : 'saved');
+    }, 800);
+
+    return () => clearTimeout(saveTimerRef.current);
+  }, [circuitJson, id, isOwner]);
+
+  // ── Debounced save of arduino_code ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isLoadedRef.current || !isOwner) return;
+
+    setSaveStatus('saving');
+    clearTimeout(codeTimerRef.current);
+    codeTimerRef.current = setTimeout(async () => {
+      const { error: err } = await supabase
+        .from('circuit_posts')
+        .update({ arduino_code: arduinoCode })
+        .eq('id', id);
+
+      setSaveStatus(err ? 'error' : 'saved');
+    }, 800);
+
+    return () => clearTimeout(codeTimerRef.current);
+  }, [arduinoCode, id, isOwner]);
+
+  const handleAddComment = useCallback(async ({ x, y, body }) => {
+    if (!supabaseUser) return;
+    const { data, error: err } = await supabase
+      .from('canvas_comments')
+      .insert({ post_id: id, user_id: supabaseUser.id, body, x_coord: x, y_coord: y })
+      .select('*, user:user_id(*)')
+      .single();
+
+    if (!err && data) {
+      setComments(prev => [...prev, data]);
+    }
+    setCommentMode(false);
+  }, [id, supabaseUser]);
+
+  // ── Loading / error states ──────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-400 text-sm">
+        Loading circuit…
+      </div>
+    );
+  }
+
+  if (error || !post) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-red-400 text-sm">
+        {error ?? 'Post not found.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
+
+      {/* ── Top bar ── */}
+      <header className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-900 shrink-0">
+
+        {/* Post info */}
+        <div className="flex-1 min-w-0">
+          <h1 className="text-sm font-semibold text-white truncate leading-tight">
+            {post.title}
+          </h1>
+          <p className="text-xs text-gray-400 truncate">
+            by @{post.user?.username} &middot; {post.short_description}
+          </p>
+        </div>
+
+        {/* Save status */}
+        {saveStatus && (
+          <span className={[
+            'text-xs font-medium shrink-0',
+            saveStatus === 'saving' ? 'text-gray-500' :
+            saveStatus === 'saved'  ? 'text-green-500' :
+                                      'text-red-400',
+          ].join(' ')}>
+            {saveStatus === 'saving' ? 'Saving…' :
+             saveStatus === 'saved'  ? 'Saved' :
+                                       'Save failed'}
+          </span>
+        )}
+
+        {/* Toolbar actions */}
+        <div className="flex items-center gap-2 shrink-0">
+
+          {/* Arduino code toggle */}
+          <button
+            className={[
+              'text-xs px-3 py-1.5 rounded-md font-mono font-medium transition-colors',
+              codeOpen
+                ? 'bg-gray-700 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800',
+            ].join(' ')}
+            onClick={() => setCodeOpen(v => !v)}
+          >
+            {'</>'}
+          </button>
+
+          {/* Run / Stop simulation */}
+          {simStatus === 'done' || simStatus === 'error' ? (
+            <button
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+              onClick={stopSimulation}
+            >
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="5" y="5" width="14" height="14" rx="2" />
+              </svg>
+              Stop
+            </button>
+          ) : (
+            <button
+              className={[
+                'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors',
+                simStatus === 'running'
+                  ? 'bg-green-800 text-green-300 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-500',
+              ].join(' ')}
+              onClick={runSimulation}
+              disabled={simStatus === 'running'}
+            >
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {simStatus === 'running' ? 'Running…' : 'Run'}
+            </button>
+          )}
+
+          {/* Divider */}
+          <div className="w-px h-5 bg-gray-700" />
+
+          {/* Comment mode */}
+          <button
+            className={[
+              'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors',
+              commentMode
+                ? 'bg-amber-500 text-amber-950 hover:bg-amber-400'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700',
+            ].join(' ')}
+            onClick={() => {
+              if (!isAuthenticated) {
+                loginWithRedirect({ appState: { returnTo: location.pathname } });
+                return;
+              }
+              setCommentMode(v => !v);
+              setChatOpen(false);
+            }}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            {commentMode ? 'Exit' : 'Comment'}
+          </button>
+
+          {/* AI Chat (owner only) */}
+          {isOwner && (
+            <button
+              className={[
+                'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors',
+                chatOpen
+                  ? 'bg-violet-600 text-white hover:bg-violet-500'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700',
+              ].join(' ')}
+              onClick={() => {
+                setChatOpen(v => !v);
+                setCommentMode(false);
+              }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              AI Chat
+            </button>
+          )}
+          {/* Auth */}
+          <div className="w-px h-5 bg-gray-700" />
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 max-w-[120px] truncate">
+                {supabaseUser?.username ?? user?.name}
+              </span>
+              <button
+                className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
+                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              >
+                Log out
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+              onClick={() => loginWithRedirect({ appState: { returnTo: location.pathname } })}
+            >
+              Log in
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── Arduino code panel ── */}
+      {codeOpen && (
+        <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-5 py-3">
+          <p className="text-xs text-gray-500 font-medium mb-2 uppercase tracking-wide">Arduino Code</p>
+          <textarea
+            className="w-full h-36 bg-gray-950 text-green-400 font-mono text-xs leading-relaxed resize-none outline-none border border-gray-800 rounded p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            value={arduinoCode}
+            onChange={e => setArduinoCode(e.target.value)}
+            readOnly={!isOwner}
+            spellCheck={false}
+          />
+        </div>
+      )}
+
+      {/* ── Simulation error / warning banner ── */}
+      {(simErrors.length > 0 || simWarnings.length > 0) && (
+        <div className="shrink-0 border-b border-gray-800 px-4 py-2 flex flex-col gap-1 bg-gray-950">
+          {simErrors.map((err, i) => (
+            <p key={i} className="text-xs text-red-400 font-mono">✗ {err}</p>
+          ))}
+          {simWarnings.map((w, i) => (
+            <p key={i} className="text-xs text-amber-400 font-mono">⚠ {w}</p>
+          ))}
+        </div>
+      )}
+
+      {/* ── Canvas area ── */}
+      <div
+        className="flex-1 relative overflow-hidden transition-all duration-200"
+        style={{ marginRight: chatOpen ? '320px' : 0 }}
+      >
+        <CircuitCanvas
+          circuitJson={circuitJson}
+          comments={comments}
+          commentMode={commentMode}
+          onAddComment={handleAddComment}
+          onCircuitChange={setCircuitJson}
+          simulationStates={simulationStates}
+          readOnly={!isOwner}
+        />
+      </div>
+
+      {/* ── AI Chat panel ── */}
+      <AIChatPanel
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        isOwner={isOwner}
+      />
+    </div>
+  );
+}
