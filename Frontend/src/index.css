@@ -1,4 +1,23 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #4ade80;
+    --primary: #16a34a;
+    --primary-foreground: #ffffff;
+    --accent: #f1f5f9;
+    --accent-foreground: #0f172a;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
