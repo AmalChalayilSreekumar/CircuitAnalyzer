@@ -17,11 +17,11 @@ from pydantic import BaseModel
 from typing import Optional
 from PIL import Image as PILImage
 from dotenv import load_dotenv
-
 from arduino_parser import parse_arduino
 from circuit_analyzer import analyze_circuit
 from PicToGemini import createJSON, base64Trans
 from Connection import addCircuit, supabase as _supa
+from ChatBot import chat_with_circuit
 
 load_dotenv()
 
@@ -223,6 +223,11 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    reply = chat_with_circuit(req.circuit_json, req.arduino_code, req.messages)
+    return ChatResponse(response=reply)
+
 @app.post("/api/create-post")
 async def create_post(
     auth0_user_id: str = Form(...),
@@ -256,8 +261,32 @@ async def create_post(
     row = addCircuit(supabase_user_id, title, short_description, arduino_code, "", circuit_json)
     if not row:
         raise HTTPException(status_code=500, detail="Failed to save post to database.")
+    post_id = row["id"]
 
-    return {"id": row["id"]}
+    # 5. Create the private post_chats row for this post
+    chat_res = _supa.table("post_chats").insert({
+        "post_id": post_id,
+        "owner_user_id": supabase_user_id,
+    }).execute()
+    chat_id = chat_res.data[0]["id"]
+
+    # 6. Run initial AI analysis of the circuit
+    initial_msg = [{"role": "user", "content": "Please analyze this circuit and identify any issues."}]
+    ai_reply_str = chat_with_circuit(circuit_json, arduino_code, initial_msg)
+    ai_reply = json.loads(ai_reply_str)
+    general = ai_reply.get("general_feedback", {})
+    ai_body = list(general.values())[0] if general else ai_reply_str
+
+    # 7. Look up Gemini pseudo-user and store AI message in chat_messages
+    gemini_res = _supa.table("users").select("id").eq("email", "gemini@system.local").single().execute()
+    gemini_user_id = gemini_res.data["id"]
+    _supa.table("chat_messages").insert({
+        "chat_id": chat_id,
+        "sender_user_id": gemini_user_id,
+        "body": ai_body,
+    }).execute()
+
+    return {"id": post_id}
 
 
 @app.get("/health")

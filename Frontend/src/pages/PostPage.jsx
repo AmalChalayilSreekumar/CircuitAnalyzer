@@ -402,6 +402,8 @@ export default function PostPage() {
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}
         isOwner={isOwner}
+        circuitJson={circuitJson}
+        arduinoCode={arduinoCode}
       />
     </div>
   );

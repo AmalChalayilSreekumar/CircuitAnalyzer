@@ -8,7 +8,7 @@ const INITIAL_MESSAGES = [
   },
 ];
 
-export default function AIChatPanel({ isOpen, onClose, isOwner }) {
+export default function AIChatPanel({ isOpen, onClose, isOwner, circuitJson, arduinoCode }) {
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,25 +20,55 @@ export default function AIChatPanel({ isOpen, onClose, isOwner }) {
     }
   }, [messages, isOpen]);
 
-  function handleSend() {
+  async function handleSend() {
     if (!input.trim() || loading) return;
     const userMsg = { id: Date.now(), sender: 'user', body: input.trim() };
-    setMessages(prev => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setLoading(true);
 
-    // TODO: replace with real Gemini API call
-    setTimeout(() => {
+    // Build conversation history in the format the backend expects
+    const history = updatedMessages.map(m => ({
+      role: m.sender === 'user' ? 'user' : 'assistant',
+      content: m.body,
+    }));
+
+    try {
+      const res = await fetch('http://localhost:8000/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          circuit_json: circuitJson ?? {},
+          arduino_code: arduinoCode ?? '',
+          messages: history,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+
+      // The response is a JSON string with general_feedback and specific_point_feedback
+      let body;
+      try {
+        const parsed = JSON.parse(data.response);
+        body = parsed.general_feedback ?? data.response;
+      } catch {
+        body = data.response;
+      }
+
       setMessages(prev => [
         ...prev,
-        {
-          id: Date.now() + 1,
-          sender: 'ai',
-          body: 'Analyzing your circuit… (Gemini API integration coming soon)',
-        },
+        { id: Date.now() + 1, sender: 'ai', body },
       ]);
+    } catch (err) {
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, sender: 'ai', body: `Error: ${err.message}` },
+      ]);
+    } finally {
       setLoading(false);
-    }, 900);
+    }
   }
 
   function handleKeyDown(e) {
