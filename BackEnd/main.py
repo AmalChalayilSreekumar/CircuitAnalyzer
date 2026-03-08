@@ -4,17 +4,26 @@ CircuitAnalyzer simulation backend.
 Run with:
     uvicorn main:app --reload --port 8000
 
-Endpoint:
+Endpoints:
     POST /api/simulate
+    POST /api/create-post
 """
 
-from fastapi import FastAPI
+import io
+import json
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+from PIL import Image as PILImage
+from dotenv import load_dotenv
 
 from arduino_parser import parse_arduino
 from circuit_analyzer import analyze_circuit
+from PicToGemini import createJSON, base64Trans
+from Connection import addCircuit, supabase as _supa
+
+load_dotenv()
 
 app = FastAPI(title="CircuitAnalyzer Simulator")
 
@@ -190,25 +199,66 @@ def simulate(req: SimulateRequest):
         component_states=component_states,
     )
 
+def _normalize_circuit_json(obj, parent_key: str = "") -> object:
+    """
+    Recursively normalize string values in circuit JSON:
+    - All string values are lowercased
+    - EXCEPT values whose parent key is 'pin' — those are uppercased (e.g. "D9", "GND", "5V")
+    """
+    if isinstance(obj, dict):
+        return {k: _normalize_circuit_json(v, parent_key=k) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_circuit_json(item, parent_key=parent_key) for item in obj]
+    if isinstance(obj, str):
+        return obj.upper() if parent_key == "pin" else obj.lower()
+    return obj
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+
 #when chat is called from frontend, it will include the following fields
 class ChatRequest(BaseModel):
     circuit_json: dict
     arduino_code: str
     messages: list[dict]
 
-
 class ChatResponse(BaseModel):
     response: str
 
-#POST API call to automatically validate the request matches ChatRequest
-@app.post("/api/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    reply = chat_with_circuit(req.circuit_json, req.arduino_code, req.messages)
-    return ChatResponse(response=reply)
+@app.post("/api/create-post")
+async def create_post(
+    auth0_user_id: str = Form(...),
+    title: str = Form(...),
+    short_description: str = Form(...),
+    arduino_code: str = Form(...),
+    image: UploadFile = File(...),
+):
+    # 1. Resolve Supabase user UUID from auth0_user_id
+    user_res = _supa.table("users").select("id").eq("auth0_user_id", auth0_user_id).single().execute()
+    if not user_res.data:
+        raise HTTPException(status_code=404, detail="User not found. Ensure you are logged in and your account is synced.")
+    supabase_user_id = user_res.data["id"]
+
+    # 2. Read image bytes → PIL → base64 → Gemini circuit JSON
+    image_bytes = await image.read()
+    pil_image = PILImage.open(io.BytesIO(image_bytes))
+    image_base64 = base64Trans(pil_image)
+    circuit_json_str = createJSON(image_base64)
+
+    # 3. Parse JSON string (Gemini occasionally wraps it in markdown fences)
+    try:
+        circuit_json = json.loads(circuit_json_str)
+    except json.JSONDecodeError:
+        stripped = circuit_json_str.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        circuit_json = json.loads(stripped)
+
+    circuit_json = _normalize_circuit_json(circuit_json)
+
+    # 4. Insert post into Supabase (image not stored — image_url is empty)
+    row = addCircuit(supabase_user_id, title, short_description, arduino_code, "", circuit_json)
+    if not row:
+        raise HTTPException(status_code=500, detail="Failed to save post to database.")
+
+    return {"id": row["id"]}
+
 
 @app.get("/health")
 def health():

@@ -73,6 +73,7 @@ def createJSON(imageBase64):
     sys.stdout.reconfigure(encoding="utf-8")
     return response.text
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-image = Image.open(os.path.join(script_dir, "IMG_5937.jpg"))
-print(createJSON(base64Trans(image)))
+if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    image = Image.open(os.path.join(script_dir, "IMG_5937.jpg"))
+    print(createJSON(base64Trans(image)))

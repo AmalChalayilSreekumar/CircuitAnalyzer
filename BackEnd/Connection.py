@@ -21,7 +21,7 @@ def addCircuit(user_id: str, title: str, short_description: str, arduino_code: s
     return res.data[0] if res.data else None
 
     
-script_dir = os.path.dirname(os.path.abspath(__file__))
-image = Image.open(os.path.join(script_dir, "IMG_5937.jpg"))
-
-addCircuit('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'What is wrong with this', "I have been troubleshooting this and have given up", 'x=5\ny=5', 'xyz.com', createJSON(base64Trans(image)))
+if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    image = Image.open(os.path.join(script_dir, "IMG_5937.jpg"))
+    addCircuit('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'What is wrong with this', "I have been troubleshooting this and have given up", 'x=5\ny=5', 'xyz.com', createJSON(base64Trans(image)))
