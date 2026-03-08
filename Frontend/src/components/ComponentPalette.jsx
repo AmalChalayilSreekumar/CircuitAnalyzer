@@ -30,6 +30,30 @@ const ITEMS = [
     ),
   },
   {
+    type: 'rgb-led',
+    label: 'RGB LED',
+    icon: (
+      <svg viewBox="0 0 32 32" className="w-6 h-6">
+        {/* Lead lines from center to R, G, B, common */}
+        <line x1="16" y1="16" x2="28" y2="10" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="16" x2="28" y2="22" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="16" x2="4"  y2="22" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="16" x2="4"  y2="10" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" />
+        {/* Outer glow */}
+        <circle cx="16" cy="16" r="8" fill="url(#rgb-grad)" opacity="0.35" />
+        {/* Body */}
+        <circle cx="16" cy="16" r="5" fill="url(#rgb-grad)" stroke="#fff" strokeWidth="0.5" opacity="0.9" />
+        <defs>
+          <radialGradient id="rgb-grad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%"   stopColor="#fff" />
+            <stop offset="40%"  stopColor="#a855f7" />
+            <stop offset="100%" stopColor="#1d4ed8" />
+          </radialGradient>
+        </defs>
+      </svg>
+    ),
+  },
+  {
     type: 'switch',
     label: 'Switch',
     icon: (

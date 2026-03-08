@@ -40,11 +40,17 @@ class ComponentState(BaseModel):
     brightness: float = 1.0  # 0.0–1.0
 
 
+class RgbLedComponentState(BaseModel):
+    r: ComponentState
+    g: ComponentState
+    b: ComponentState
+
+
 class SimulateResponse(BaseModel):
     success: bool
     parse_errors: list[str]
     warnings: list[str]
-    component_states: dict[str, ComponentState]
+    component_states: dict[str, ComponentState | RgbLedComponentState]
 
 
 # ── Simulation logic ──────────────────────────────────────────────────────────
@@ -117,6 +123,34 @@ def _determine_led_state(
     return ComponentState(state='on', brightness=1.0)
 
 
+def _determine_rgb_led_state(
+    led_id: str,
+    rgb_analysis: dict,
+    pin_timelines: dict,
+    output_pins: list[str],
+    warnings: list[str],
+) -> RgbLedComponentState:
+    """
+    Determine per-channel (R, G, B) states for an RGB LED component.
+    Each channel is analyzed independently using the same logic as a regular LED.
+    """
+    channel_states: dict[str, ComponentState] = {}
+    channel_labels = {'r': 'Red', 'g': 'Green', 'b': 'Blue'}
+
+    for channel in ('r', 'g', 'b'):
+        analysis = rgb_analysis.get(channel, {})
+        label = f"{led_id}[{channel_labels[channel]}]"
+        channel_states[channel] = _determine_led_state(
+            label, analysis, pin_timelines, output_pins, warnings
+        )
+
+    return RgbLedComponentState(
+        r=channel_states['r'],
+        g=channel_states['g'],
+        b=channel_states['b'],
+    )
+
+
 # ── Route ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/simulate", response_model=SimulateResponse)
@@ -129,16 +163,25 @@ def simulate(req: SimulateRequest):
     # 2. Analyze circuit topology
     led_analyses = analyze_circuit(req.components)
 
-    # 3. Determine state for each LED
-    component_states: dict[str, ComponentState] = {}
+    # 3. Determine state for each LED / RGB LED
+    component_states: dict[str, ComponentState | RgbLedComponentState] = {}
     for led_id, analysis in led_analyses.items():
-        component_states[led_id] = _determine_led_state(
-            led_id,
-            analysis,
-            parsed['pin_timelines'],
-            parsed['output_pins'],
-            warnings,
-        )
+        if 'r' in analysis and 'g' in analysis and 'b' in analysis:
+            component_states[led_id] = _determine_rgb_led_state(
+                led_id,
+                analysis,
+                parsed['pin_timelines'],
+                parsed['output_pins'],
+                warnings,
+            )
+        else:
+            component_states[led_id] = _determine_led_state(
+                led_id,
+                analysis,
+                parsed['pin_timelines'],
+                parsed['output_pins'],
+                warnings,
+            )
 
     return SimulateResponse(
         success=len(parsed['parse_errors']) == 0,

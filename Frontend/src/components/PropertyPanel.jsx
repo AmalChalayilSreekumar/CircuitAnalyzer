@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-const TYPE_LABEL = { wire: 'Wire', resistor: 'Resistor', led: 'LED', battery: 'Battery' };
+const TYPE_LABEL = { wire: 'Wire', resistor: 'Resistor', led: 'LED', battery: 'Battery', 'rgb-led': 'RGB LED' };
 
 export default function PropertyPanel({ component, screenPos, onChange, onDelete, onClose }) {
   const [value, setValue] = useState(component?.value ?? '');
@@ -82,6 +82,29 @@ export default function PropertyPanel({ component, screenPos, onChange, onDelete
 
       {component.type === 'battery' && (
         <p className="text-xs text-gray-500">No editable properties.</p>
+      )}
+
+      {component.type === 'rgb-led' && (
+        <div className="flex flex-col gap-1.5 mt-0.5">
+          <p className="text-xs text-gray-500 mb-0.5">Pin connections</p>
+          {[
+            { key: 'r', label: 'R', color: 'text-red-400' },
+            { key: 'g', label: 'G', color: 'text-green-400' },
+            { key: 'b', label: 'B', color: 'text-blue-400' },
+            { key: 'common', label: '−', color: 'text-gray-400' },
+          ].map(({ key, label, color }) => {
+            const ep = component[key];
+            const val = ep
+              ? ('pin' in ep ? `Pin ${ep.pin}` : `${ep.row?.toUpperCase()}${ep.col}`)
+              : '—';
+            return (
+              <div key={key} className="flex items-center gap-2">
+                <span className={`text-xs font-bold font-mono w-5 shrink-0 ${color}`}>{label}</span>
+                <span className="text-xs text-gray-400 bg-gray-800 rounded px-2 py-0.5 flex-1 truncate">{val}</span>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

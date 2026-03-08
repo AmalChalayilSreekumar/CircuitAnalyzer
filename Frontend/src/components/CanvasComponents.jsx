@@ -136,6 +136,40 @@ function Led({ s, e, simState }) {
   );
 }
 
+function RgbLed({ common, r, g, b, simState }) {
+  const cx = (common.x + r.x + g.x + b.x) / 4;
+  const cy = (common.y + r.y + g.y + b.y) / 4;
+
+  const rBr = simState?.r?.state === 'on' || simState?.r?.state === 'blinking' ? (simState.r.brightness ?? 1) : 0;
+  const gBr = simState?.g?.state === 'on' || simState?.g?.state === 'blinking' ? (simState.g.brightness ?? 1) : 0;
+  const bBr = simState?.b?.state === 'on' || simState?.b?.state === 'blinking' ? (simState.b.brightness ?? 1) : 0;
+
+  const toHex = v => Math.round(v * 255).toString(16).padStart(2, '0');
+  const bodyColor = `#${toHex(rBr)}${toHex(gBr)}${toHex(bBr)}`;
+  const isAnyOn = rBr > 0 || gBr > 0 || bBr > 0;
+
+  return (
+    <g>
+      {/* Lead lines from body center to each pin */}
+      <line x1={cx} y1={cy} x2={r.x} y2={r.y} stroke="#ef4444" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={g.x} y2={g.y} stroke="#22c55e" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={b.x} y2={b.y} stroke="#3b82f6" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={common.x} y2={common.y} stroke="#6b7280" strokeWidth={2} strokeLinecap="round" />
+      {/* Glow halos when any channel is on */}
+      {isAnyOn && <circle cx={cx} cy={cy} r={20} fill={bodyColor} opacity={0.2} />}
+      {isAnyOn && <circle cx={cx} cy={cy} r={13} fill={bodyColor} opacity={0.45} />}
+      {/* LED body */}
+      <circle cx={cx} cy={cy} r={9} fill={isAnyOn ? bodyColor : '#1f2937'} stroke={isAnyOn ? bodyColor : '#374151'} strokeWidth={1.5} />
+      {isAnyOn && <circle cx={cx} cy={cy} r={4} fill="#fff" opacity={0.75} />}
+      {/* Pin labels */}
+      <text x={r.x} y={r.y - 9} fill="#ef4444" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">R</text>
+      <text x={g.x} y={g.y - 9} fill="#22c55e" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">G</text>
+      <text x={b.x} y={b.y - 9} fill="#3b82f6" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">B</text>
+      <text x={common.x} y={common.y - 9} fill="#9ca3af" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">−</text>
+    </g>
+  );
+}
+
 function Battery({ s, e }) {
   const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
   const horiz = Math.abs(e.x - s.x) >= Math.abs(e.y - s.y);
@@ -244,9 +278,37 @@ export default function CanvasComponents({ components, selectedId, editMode, onM
   return (
     <g>
       {components.map(comp => {
+        const isSelected = comp.id === selectedId;
+
+        // RGB LED has 4 endpoints and its own rendering path
+        if (comp.type === 'rgb-led') {
+          const common = resolveEndpoint(comp.common);
+          const r      = resolveEndpoint(comp.r);
+          const g      = resolveEndpoint(comp.g);
+          const b      = resolveEndpoint(comp.b);
+          const allX   = [common.x, r.x, g.x, b.x];
+          const allY   = [common.y, r.y, g.y, b.y];
+          const sel_s  = { x: Math.min(...allX), y: Math.min(...allY) };
+          const sel_e  = { x: Math.max(...allX), y: Math.max(...allY) };
+          const cx     = (common.x + r.x + g.x + b.x) / 4;
+          const cy     = (common.y + r.y + g.y + b.y) / 4;
+          return (
+            <g key={comp.id}>
+              {isSelected && <SelectionRing s={sel_s} e={sel_e} />}
+              <RgbLed common={common} r={r} g={g} b={b} simState={simulationStates?.[comp.id]} />
+              {editMode && (
+                <circle cx={cx} cy={cy} r={16} fill="transparent"
+                  style={{ cursor: 'pointer' }}
+                  onMouseDown={ev => onMouseDown(ev, comp)}
+                  onClick={ev => onComponentClick(ev, comp.id)}
+                />
+              )}
+            </g>
+          );
+        }
+
         const s = resolveEndpoint(comp.start);
         const e = resolveEndpoint(comp.end);
-        const isSelected = comp.id === selectedId;
 
         const Shape = comp.type === 'led'
           ? <Led s={s} e={e} simState={simulationStates?.[comp.id]} />

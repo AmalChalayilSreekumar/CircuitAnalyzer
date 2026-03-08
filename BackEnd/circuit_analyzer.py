@@ -13,6 +13,11 @@ For each LED component, returns:
   - which Arduino digital/PWM pin drives it (if any)
   - whether there is a GND path on the other side
   - whether a series resistor is present between pin and LED anode
+
+For each RGB LED component, returns per-channel (r, g, b) analysis:
+  - which Arduino pin drives each color channel
+  - whether there is a GND path on the common pin
+  - whether a series resistor is present on each channel
 """
 
 from typing import TypedDict, Optional
@@ -89,7 +94,7 @@ def _breadboard_net_key(row: str, col: int) -> str:
     return f"hole:{row}:{col}"
 
 
-# ── LED analysis result ───────────────────────────────────────────────────────
+# ── LED analysis results ──────────────────────────────────────────────────────
 
 class LedAnalysis(TypedDict):
     connected_pin: Optional[str]   # e.g. "9", "13", None
@@ -98,27 +103,45 @@ class LedAnalysis(TypedDict):
     reversed: bool                 # True if anode/cathode are swapped
 
 
+class RgbLedChannelAnalysis(TypedDict):
+    connected_pin: Optional[str]   # Arduino pin driving this color channel
+    has_gnd_path: bool             # Whether GND is on the common pin
+    has_series_resistor: bool      # Whether a resistor sits between pin and channel
+    reversed: bool                 # True if polarity is swapped on this channel
+
+
+class RgbLedAnalysis(TypedDict):
+    r: RgbLedChannelAnalysis
+    g: RgbLedChannelAnalysis
+    b: RgbLedChannelAnalysis
+
+
 # ── Main analyzer ─────────────────────────────────────────────────────────────
 
-def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis]:
+def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis | RgbLedAnalysis]:
     """
-    Returns a dict mapping each LED component id to its LedAnalysis.
+    Returns a dict mapping each LED / RGB LED component id to its analysis result.
     """
     uf = UnionFind()
 
     # Step 1: Apply breadboard internal connections.
     # For every hole endpoint in the component list, union it with its net key.
     for comp in components:
-        for ep_key in ('start', 'end'):
+        ep_keys = ('common', 'r', 'g', 'b') if comp.get('type') == 'rgb-led' else ('start', 'end')
+        for ep_key in ep_keys:
             ep = comp.get(ep_key, {})
             if 'row' in ep and 'col' in ep:
                 hole_key = _endpoint_key(ep)
                 net_key  = _breadboard_net_key(ep['row'], int(ep['col']))
                 uf.union(hole_key, net_key)
 
-    # Step 2: For each component, union its two endpoints (the wire/resistor/LED connects them).
+    # Step 2: For each component, union its endpoints (wire/resistor/LED connects them).
     # Switches only connect when closed; an open switch breaks the circuit path.
+    # RGB LED: do NOT union channels with common — each channel is analyzed independently.
+    # Connectivity is already captured by wires/resistors in the rest of the circuit.
     for comp in components:
+        if comp.get('type') == 'rgb-led':
+            continue
         if comp.get('type') == 'switch' and not comp.get('closed', False):
             continue
         start_ep = comp.get('start', {})
@@ -146,7 +169,8 @@ def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis]:
     gnd_root = uf.find(gnd_anchor)
 
     for comp in components:
-        for ep_key in ('start', 'end'):
+        ep_keys = ('common', 'r', 'g', 'b') if comp.get('type') == 'rgb-led' else ('start', 'end')
+        for ep_key in ep_keys:
             ep = comp.get(ep_key, {})
             if 'pin' in ep:
                 pin = ep['pin']
@@ -209,6 +233,68 @@ def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis]:
             has_gnd_path=has_gnd_correct or has_gnd_reversed,
             has_series_resistor=has_resistor,
             reversed=is_reversed,
+        )
+
+    # Step 5b: Analyze each RGB LED component.
+    rgb_leds = [c for c in components if c.get('type') == 'rgb-led']
+
+    for rgb_led in rgb_leds:
+        common_ep = rgb_led.get('common', {})
+        ck = _endpoint_key(common_ep) if common_ep else None
+        common_root = uf.find(ck) if ck else None
+
+        channel_analyses: dict[str, RgbLedChannelAnalysis] = {}
+
+        for channel in ('r', 'g', 'b'):
+            ch_ep = rgb_led.get(channel, {})
+            ch_key = _endpoint_key(ch_ep) if ch_ep else None
+            ch_root = uf.find(ch_key) if ch_key else None
+
+            connected_pin: Optional[str] = None
+            pin_on_cathode: Optional[str] = None
+
+            if ch_root:
+                for pin, pin_root in arduino_pin_nets.items():
+                    if pin in ARDUINO_GND_PINS or pin in ARDUINO_5V_PINS:
+                        continue
+                    if pin_root == ch_root:
+                        connected_pin = pin
+                        break
+                    if common_root and pin_root == common_root:
+                        pin_on_cathode = pin
+
+            has_gnd_correct  = common_root is not None and (common_root == gnd_root)
+            has_gnd_reversed = ch_root is not None and (ch_root == gnd_root)
+
+            is_reversed = (pin_on_cathode is not None and has_gnd_reversed) or \
+                          (connected_pin is None and pin_on_cathode is not None)
+
+            effective_pin = connected_pin or (pin_on_cathode if is_reversed else None)
+
+            has_resistor = False
+            if effective_pin and ch_root:
+                pin_root_eff = arduino_pin_nets[effective_pin]
+                for comp in components:
+                    if comp.get('type') != 'resistor':
+                        continue
+                    r_sk = uf.find(_endpoint_key(comp['start']))
+                    r_ek = uf.find(_endpoint_key(comp['end']))
+                    if (r_sk == pin_root_eff and (r_ek == ch_root or r_ek == common_root)) or \
+                       (r_ek == pin_root_eff and (r_sk == ch_root or r_sk == common_root)):
+                        has_resistor = True
+                        break
+
+            channel_analyses[channel] = RgbLedChannelAnalysis(
+                connected_pin=effective_pin,
+                has_gnd_path=has_gnd_correct or has_gnd_reversed,
+                has_series_resistor=has_resistor,
+                reversed=is_reversed,
+            )
+
+        results[rgb_led['id']] = RgbLedAnalysis(
+            r=channel_analyses['r'],
+            g=channel_analyses['g'],
+            b=channel_analyses['b'],
         )
 
     return results

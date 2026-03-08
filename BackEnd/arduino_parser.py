@@ -23,12 +23,29 @@ class ParseResult(TypedDict):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _normalize_pin(pin_str: str) -> str:
-    """Convert pin number/name to string key. '9' -> '9', 'LED_BUILTIN' -> '13'."""
+def _normalize_pin(pin_str: str, aliases: dict[str, str] | None = None) -> str:
+    """Convert pin number/name to string key. '9' -> '9', 'LED_BUILTIN' -> '13'.
+    Also resolves user-defined int constants (e.g. const int RED_PIN = 9;)."""
     pin_str = pin_str.strip()
     known = {"LED_BUILTIN": "13", "A0": "14", "A1": "15", "A2": "16",
              "A3": "17", "A4": "18", "A5": "19"}
-    return known.get(pin_str, pin_str)
+    return known.get(pin_str, (aliases or {}).get(pin_str, pin_str))
+
+
+def _extract_pin_aliases(code: str) -> dict[str, str]:
+    """Extract simple integer constant declarations that likely represent pin numbers.
+
+    Handles patterns like:
+        const int RED_PIN = 9;
+        int greenPin = 10;
+        byte BLUE = 11;
+    Returns a mapping of variable name -> pin number string.
+    """
+    aliases: dict[str, str] = {}
+    pattern = re.compile(r'(?:const\s+)?(?:int|byte)\s+(\w+)\s*=\s*(\d+)\s*;')
+    for m in pattern.finditer(code):
+        aliases[m.group(1)] = m.group(2)
+    return aliases
 
 
 def _strip_comments(code: str) -> str:
@@ -100,20 +117,27 @@ def parse_arduino(code: str) -> ParseResult:
     clean = _strip_comments(code)
     errors = _check_syntax(clean)
 
+    # Extract user-defined pin name constants (e.g. const int RED_PIN = 9;)
+    # This allows RGB LED sketches that define named pin variables to be parsed correctly.
+    aliases = _extract_pin_aliases(clean)
+
+    def norm(pin_str: str) -> str:
+        return _normalize_pin(pin_str, aliases)
+
     setup_body = _extract_setup(clean)
     loop_body = _extract_loop(clean)
 
     # --- setup(): collect OUTPUT pins ---
     output_pins: set[str] = set()
     for m in re.finditer(r'pinMode\s*\(\s*(\w+)\s*,\s*(OUTPUT|INPUT|INPUT_PULLUP)\s*\)', setup_body):
-        pin = _normalize_pin(m.group(1))
+        pin = norm(m.group(1))
         mode = m.group(2)
         if mode == 'OUTPUT':
             output_pins.add(pin)
 
     # Also catch pinMode calls in loop (rare but valid)
     for m in re.finditer(r'pinMode\s*\(\s*(\w+)\s*,\s*OUTPUT\s*\)', loop_body):
-        output_pins.add(_normalize_pin(m.group(1)))
+        output_pins.add(norm(m.group(1)))
 
     # --- loop(): build per-pin event timelines ---
     # We walk the loop body line by line and track:
@@ -144,11 +168,11 @@ def parse_arduino(code: str) -> ParseResult:
 
     for _, kind, m in events:
         if kind == 'dwrite':
-            pin = _normalize_pin(m.group(1))
+            pin = norm(m.group(1))
             state = m.group(2)
             statements.append(('write', pin, state, 1.0 if state == 'HIGH' else 0.0))
         elif kind == 'awrite':
-            pin = _normalize_pin(m.group(1))
+            pin = norm(m.group(1))
             value = int(m.group(2))
             brightness = round(value / 255.0, 4)
             statements.append(('write', pin, 'PWM', brightness))

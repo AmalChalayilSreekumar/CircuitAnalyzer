@@ -45,7 +45,8 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
 
   // ── Edit / placement state ───────────────────────────────────────────────────
   const [selectedTool, setSelectedTool] = useState(null);   // 'wire'|'resistor'|etc
-  const [pendingPoint, setPendingPoint] = useState(null);   // first endpoint clicked
+  const [pendingPoint, setPendingPoint] = useState(null);   // first endpoint clicked (single-step)
+  const [pendingPoints, setPendingPoints] = useState([]);   // multi-step: rgb-led [r, g, b, ...]
   const [mousePos, setMousePos]         = useState(null);   // SVG coords for preview
   const [hoveredHole, setHoveredHole]   = useState(null);
   const [hoveredPin,  setHoveredPin]    = useState(null);
@@ -76,6 +77,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
       if (e.key === 'Escape') {
         setSelectedTool(null);
         setPendingPoint(null);
+        setPendingPoints([]);
         setSelectedCompId(null);
       }
     }
@@ -84,8 +86,28 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
   }, [selectedCompId]);
 
   // ── Placement click ──────────────────────────────────────────────────────────
+  const RGB_STEP_HINTS = ['R (red) pin', 'G (green) pin', 'B (blue) pin', 'Common (−) pin'];
+
   function handlePointClick(endpoint) {
     if (!editMode) return;
+
+    if (selectedTool === 'rgb-led') {
+      const next = [...pendingPoints, endpoint];
+      setPendingPoint(endpoint); // keep latest for preview/highlight
+      if (next.length < 4) {
+        setPendingPoints(next);
+      } else {
+        const [r, g, b, common] = next;
+        setComponents(prev => [
+          ...prev,
+          { id: `c${Date.now()}`, type: 'rgb-led', r, g, b, common },
+        ]);
+        setPendingPoints([]);
+        setPendingPoint(null);
+      }
+      return;
+    }
+
     if (!pendingPoint) {
       setPendingPoint(endpoint);
     } else {
@@ -167,6 +189,12 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
   const selectedComp = components.find(c => c.id === selectedCompId) ?? null;
   const selectedScreenPos = selectedComp
     ? (() => {
+        if (selectedComp.type === 'rgb-led') {
+          const pts = ['r', 'g', 'b', 'common'].map(k => resolveEndpoint(selectedComp[k]));
+          const cx = pts.reduce((s, p) => s + p.x, 0) / 4;
+          const cy = pts.reduce((s, p) => s + p.y, 0) / 4;
+          return boardToScreen(cx, cy);
+        }
         const s = resolveEndpoint(selectedComp.start);
         const e = resolveEndpoint(selectedComp.end);
         return boardToScreen((s.x + e.x) / 2, (s.y + e.y) / 2);
@@ -185,6 +213,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
         onSelect={tool => {
           setSelectedTool(prev => prev === tool ? null : tool);
           setPendingPoint(null);
+          setPendingPoints([]);
           setSelectedCompId(null);
         }}
       />
@@ -259,17 +288,30 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
             {/* Rubber-band wire preview */}
             <WirePreview start={pendingPoint} toBoard={mousePos} />
 
-            {/* Pending point highlight ring */}
-            {pendingPoint && (() => {
-              const pt = resolveEndpoint(pendingPoint);
-              return (
-                <circle
-                  cx={pt.x} cy={pt.y} r={8}
-                  fill="rgba(251,191,36,0.35)" stroke="#fbbf24" strokeWidth={1.5}
-                  pointerEvents="none"
-                />
-              );
-            })()}
+            {/* Pending point highlight rings */}
+            {selectedTool === 'rgb-led'
+              ? pendingPoints.map((ep, i) => {
+                  const pt = resolveEndpoint(ep);
+                  const colors = ['#ef4444', '#22c55e', '#3b82f6', '#9ca3af'];
+                  return (
+                    <circle key={i}
+                      cx={pt.x} cy={pt.y} r={8}
+                      fill={`${colors[i]}55`} stroke={colors[i]} strokeWidth={1.5}
+                      pointerEvents="none"
+                    />
+                  );
+                })
+              : pendingPoint && (() => {
+                  const pt = resolveEndpoint(pendingPoint);
+                  return (
+                    <circle
+                      cx={pt.x} cy={pt.y} r={8}
+                      fill="rgba(251,191,36,0.35)" stroke="#fbbf24" strokeWidth={1.5}
+                      pointerEvents="none"
+                    />
+                  );
+                })()
+            }
           </svg>
 
           {/* Comment pins (positioned in board space) */}
@@ -333,21 +375,25 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
         )}
 
         {/* Status hints */}
-        {editMode && !pendingPoint && (
+        {editMode && (selectedTool === 'rgb-led' ? pendingPoints.length === 0 : !pendingPoint) && (
           <div className="absolute bottom-5 left-1/2 -translate-x-1/2 pointer-events-none">
             <span className="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
               {selectedTool === 'led'
                 ? 'Click the anode (+) hole first · Esc to cancel'
+                : selectedTool === 'rgb-led'
+                ? `Click the ${RGB_STEP_HINTS[0]} · Esc to cancel`
                 : selectedTool === 'switch'
                 ? 'Click first hole to start placing the switch · Esc to cancel'
                 : `Click a hole or pin to start placing a ${selectedTool} · Esc to cancel`}
             </span>
           </div>
         )}
-        {editMode && pendingPoint && (
+        {editMode && (selectedTool === 'rgb-led' ? pendingPoints.length > 0 : !!pendingPoint) && (
           <div className="absolute bottom-5 left-1/2 -translate-x-1/2 pointer-events-none">
             <span className="bg-amber-500 text-amber-950 text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
-              {selectedTool === 'led'
+              {selectedTool === 'rgb-led'
+                ? `(${pendingPoints.length}/4) Now click the ${RGB_STEP_HINTS[pendingPoints.length]} · Esc to cancel`
+                : selectedTool === 'led'
                 ? 'Now click the cathode (−) hole · Esc to cancel'
                 : 'Now click the second point · Esc to cancel'}
             </span>
