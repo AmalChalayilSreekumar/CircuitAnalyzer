@@ -23,12 +23,24 @@ And the following Arduino code that runs on the circuit:
 
 This represents a real breadboard circuit. Your job is to:
 1. Identify what is wrong with the circuit
-2. Explain issues clearly to the user
 3. Answer any follow-up questions they have about their circuit
 4. If you cannot detect a clear issue, suggest the most common possible causes 
    based on the circuit type and components present (e.g. loose connections, 
    wrong resistor value, incorrect pin assignment)
 
+   Use and return this EXACT format, nothing else should be returned:
+   {{
+  "specific_point_feedback": {
+    "mistake": {
+      "description": "Arduino GND wire (c1772945948739) is connected to hole (38, j) while the RGB LED common pin (c1772945983306) is at hole (38, f). These points are separated by the breadboard’s center gap and are not electrically connected.",
+      "x": 38,
+      "y": "j"
+    }
+  },
+  "general_feedback": {
+    "The Arduino GND and the RGB LED common pin appear to be in the same column but are actually separated by the breadboard’s central gap, so they are not electrically connected. Move the end of wire c1772945948739 from (38, j) to (38, f), or add a jumper wire to bridge the gap between the two points so the LED’s common pin is properly connected to ground."
+  }
+}}
 Be specific — reference component IDs (e.g. comp_1, comp_2) when explaining issues.
 Keep responses concise and beginner-friendly."""
 
