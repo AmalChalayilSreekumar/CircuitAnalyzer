@@ -49,3 +49,142 @@ Keep responses concise and beginner-friendly."""
     )
 
     return response.text
+
+arduino_code= '''
+const int RED_PIN   = 9;
+const int GREEN_PIN = 10;
+const int BLUE_PIN  = 11;
+
+void setup() {
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
+}
+
+void loop() {
+  analogWrite(RED_PIN, 255); analogWrite(GREEN_PIN, 255);   analogWrite(BLUE_PIN, 0);
+}
+'''
+
+circuit_json = '''
+{
+  "hardware": {
+    "components": [
+      {
+        "id": "c1772945627830",
+        "end": {
+          "col": 1,
+          "row": "x"
+        },
+        "type": "wire",
+        "start": {
+          "col": 1,
+          "row": "z"
+        }
+      },
+      {
+        "id": "c1772945916452",
+        "end": {
+          "col": 35,
+          "row": "i"
+        },
+        "type": "wire",
+        "start": {
+          "pin": "D9"
+        }
+      },
+      {
+        "id": "c1772945920136",
+        "end": {
+          "col": 36,
+          "row": "i"
+        },
+        "type": "wire",
+        "start": {
+          "pin": "D10"
+        }
+      },
+      {
+        "id": "c1772945922538",
+        "end": {
+          "col": 37,
+          "row": "i"
+        },
+        "type": "wire",
+        "start": {
+          "pin": "D11"
+        }
+      },
+      {
+        "id": "c1772945948739",
+        "end": {
+          "col": 38,
+          "row": "j"
+        },
+        "type": "wire",
+        "start": {
+          "pin": "GND"
+        }
+      },
+      {
+        "id": "c1772945971021",
+        "end": {
+          "col": 27,
+          "row": "g"
+        },
+        "type": "resistor",
+        "start": {
+          "col": 35,
+          "row": "h"
+        }
+      },
+      {
+        "id": "c1772945973623",
+        "end": {
+          "col": 29,
+          "row": "g"
+        },
+        "type": "resistor",
+        "start": {
+          "col": 36,
+          "row": "h"
+        }
+      },
+      {
+        "id": "c1772945976788",
+        "end": {
+          "col": 31,
+          "row": "g"
+        },
+        "type": "resistor",
+        "start": {
+          "col": 37,
+          "row": "h"
+        }
+      },
+      {
+        "b": {
+          "col": 31,
+          "row": "f"
+        },
+        "g": {
+          "col": 29,
+          "row": "f"
+        },
+        "r": {
+          "col": 27,
+          "row": "f"
+        },
+        "id": "c1772945983306",
+        "type": "rgb-led",
+        "common": {
+          "col": 38,
+          "row": "f"
+        }
+      }
+    ]
+  }
+}
+'''
+
+print(chat_with_circuit(circuit_json, arduino_code, [{"role": "user", "content": "I dont understand why these pins are in the incorrect place"}]))
