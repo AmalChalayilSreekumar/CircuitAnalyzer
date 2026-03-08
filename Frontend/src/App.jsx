@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Routes, Route, useNavigate, useSearchParams } from "react-router-dom";
 import LandingPage, { CircuitCard } from "./LandingPage";
+import PostPage from "./pages/PostPage.jsx";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
@@ -11,29 +12,31 @@ const supabase = createClient(
 );
 
 function LoginPage() {
-  const {
-    isLoading,
-    isAuthenticated,
-    error,
-    loginWithRedirect,
-    logout,
-    user,
-  } = useAuth0();
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth0 } from '@auth0/auth0-react'
-import PostPage from './pages/PostPage.jsx'
+  const { isLoading, isAuthenticated, loginWithRedirect, logout, user } = useAuth0();
+  const navigate = useNavigate();
 
-export default function App() {
-  const { isLoading } = useAuth0()
+  if (isLoading) return <div className="page"><div className="card"><h2>Loading...</h2></div></div>;
 
-  if (isLoading) return null
+  if (isAuthenticated) {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>Logged in as {user?.name || user?.email}</h2>
+          <button className="primary-btn" onClick={() => navigate("/")}>Go Home</button>
+          <button className="secondary-btn" onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}>Logout</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Routes>
-      <Route path="/posts/:id" element={<PostPage />} />
-      <Route path="/" element={<Navigate to="/posts/b1000001-0000-4000-8000-000000000001" replace />} />
-    </Routes>
-  )
+    <div className="page">
+      <div className="card">
+        <h2>Sign In</h2>
+        <button className="primary-btn" onClick={() => loginWithRedirect()}>Log In</button>
+      </div>
+    </div>
+  );
 }
 
 function ProfilePage() {
@@ -78,7 +81,7 @@ function SearchPage() {
     async function fetchResults() {
       const { data: posts, error } = await supabase
         .from("circuit_posts")
-        .select("user_id, title, short_description")
+        .select("id, user_id, title, short_description")
         .or(`title.ilike.%${query}%,short_description.ilike.%${query}%`);
 
       if (!error && posts) {
@@ -94,7 +97,7 @@ function SearchPage() {
 
         setResults(
           posts.map((row) => ({
-            id: row.user_id,
+            id: row.id,
             title: row.title,
             desc: row.short_description,
             author: usernameMap[row.user_id] ?? row.user_id,
@@ -144,6 +147,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/posts/:id" element={<PostPage />} />
     </Routes>
   );
 }

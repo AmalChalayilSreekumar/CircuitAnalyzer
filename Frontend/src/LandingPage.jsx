@@ -16,9 +16,10 @@ const supabase = createClient(
 
 
 // ── Circuit Card ──────────────────────────────────────────────
-export function CircuitCard({ title, desc, author, comments }) {
+export function CircuitCard({ id, title, desc, author, comments }) {
+  const navigate = useNavigate();
   return (
-    <Card className="bg-white/10 border-white/20 text-white hover:bg-white/15 transition-colors cursor-pointer">
+    <Card onClick={() => navigate(`/posts/${id}`)} className="bg-white/10 border-white/20 text-white hover:bg-white/15 transition-colors cursor-pointer">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg leading-snug">{title}</CardTitle>
         <CardDescription className="text-white/70 text-sm mt-1">
@@ -64,7 +65,7 @@ export default function LandingPage() {
     async function fetchCircuits() {
       const { data: posts, error: postsError } = await supabase
         .from("circuit_posts")
-        .select("user_id, title, short_description");
+        .select("id, user_id, title, short_description");
 
       if (postsError) {
         console.error(postsError);
@@ -84,7 +85,7 @@ export default function LandingPage() {
 
       setCards(
         posts.map((row) => ({
-          id:       row.user_id,
+          id:       row.id,
           title:    row.title,
           desc:     row.short_description,
           author:   usernameMap[row.user_id] ?? row.user_id,
@@ -192,6 +193,7 @@ export default function LandingPage() {
               {cards.map((card) => (
                 <CircuitCard
                   key={card.id}
+                  id={card.id}
                   title={card.title}
                   desc={card.desc}
                   author={card.author}
