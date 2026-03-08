@@ -62,6 +62,11 @@ def _determine_led_state(
     connected_pin = led_analysis.get('connected_pin')
     has_gnd       = led_analysis.get('has_gnd_path', False)
     has_resistor  = led_analysis.get('has_series_resistor', False)
+    is_reversed   = led_analysis.get('reversed', False)
+
+    if is_reversed:
+        warnings.append(f"{led_id}: LED is wired backwards — anode (+) should connect to the signal pin")
+        return ComponentState(state='reversed')
 
     if not connected_pin:
         return ComponentState(state='off')

@@ -332,14 +332,18 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
         {editMode && !pendingPoint && (
           <div className="absolute bottom-5 left-1/2 -translate-x-1/2 pointer-events-none">
             <span className="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
-              Click a hole or pin to start placing a {selectedTool} · Esc to cancel
+              {selectedTool === 'led'
+                ? 'Click the anode (+) hole first · Esc to cancel'
+                : `Click a hole or pin to start placing a ${selectedTool} · Esc to cancel`}
             </span>
           </div>
         )}
         {editMode && pendingPoint && (
           <div className="absolute bottom-5 left-1/2 -translate-x-1/2 pointer-events-none">
             <span className="bg-amber-500 text-amber-950 text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
-              Now click the second point · Esc to cancel
+              {selectedTool === 'led'
+                ? 'Now click the cathode (−) hole · Esc to cancel'
+                : 'Now click the second point · Esc to cancel'}
             </span>
           </div>
         )}

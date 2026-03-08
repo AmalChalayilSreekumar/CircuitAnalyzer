@@ -24,6 +24,25 @@ function Resistor({ s, e }) {
   );
 }
 
+// Polarity labels: small "+" near anode (start), "−" near cathode (end)
+// Offset the labels slightly away from the endpoint along the wire direction.
+function LedPolarityLabels({ s, e }) {
+  const dx = e.x - s.x, dy = e.y - s.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  // Place labels 10px inward from each endpoint
+  const anode    = { x: s.x + ux * 12, y: s.y + uy * 12 };
+  const cathode  = { x: e.x - ux * 12, y: e.y - uy * 12 };
+  // Perpendicular offset so labels sit beside the wire, not on it
+  const px = -uy * 9, py = ux * 9;
+  return (
+    <g pointerEvents="none" fontFamily="monospace" fontSize={8} fontWeight="bold">
+      <text x={anode.x + px} y={anode.y + py} fill="#4ade80" textAnchor="middle" dominantBaseline="middle">+</text>
+      <text x={cathode.x + px} y={cathode.y + py} fill="#60a5fa" textAnchor="middle" dominantBaseline="middle">−</text>
+    </g>
+  );
+}
+
 function Led({ s, e, simState }) {
   const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
   const state = simState?.state ?? 'off';
@@ -35,9 +54,22 @@ function Led({ s, e, simState }) {
         <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#4b5563" strokeWidth={2} strokeLinecap="round" />
         <circle cx={mx} cy={my} r={9} fill="#374151" opacity={0.5} />
         <circle cx={mx} cy={my} r={5} fill="#6b7280" stroke="#4b5563" strokeWidth={1} />
-        {/* X mark */}
         <line x1={mx - 4} y1={my - 4} x2={mx + 4} y2={my + 4} stroke="#dc2626" strokeWidth={1.5} strokeLinecap="round" />
         <line x1={mx + 4} y1={my - 4} x2={mx - 4} y2={my + 4} stroke="#dc2626" strokeWidth={1.5} strokeLinecap="round" />
+        <LedPolarityLabels s={s} e={e} />
+      </g>
+    );
+  }
+
+  if (state === 'reversed') {
+    return (
+      <g>
+        <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#7c3aed" strokeWidth={2} strokeLinecap="round" strokeDasharray="4 3" />
+        <circle cx={mx} cy={my} r={9} fill="#4c1d95" opacity={0.5} />
+        <circle cx={mx} cy={my} r={5} fill="#7c3aed" stroke="#5b21b6" strokeWidth={1} />
+        {/* Reverse arrow */}
+        <text x={mx} y={my + 0.5} fill="#c4b5fd" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none">↺</text>
+        <LedPolarityLabels s={s} e={e} />
       </g>
     );
   }
@@ -50,6 +82,7 @@ function Led({ s, e, simState }) {
         <circle cx={mx} cy={my} r={18} fill={`#ef4444${alpha}`} opacity={0.25 * brightness} />
         <circle cx={mx} cy={my} r={11} fill="#fca5a5" opacity={0.55 * brightness} />
         <circle cx={mx} cy={my} r={5} fill="#fff" stroke="#ef4444" strokeWidth={1.5} />
+        <LedPolarityLabels s={s} e={e} />
       </g>
     );
   }
@@ -58,10 +91,7 @@ function Led({ s, e, simState }) {
     const onMs  = simState?.on_ms  ?? 500;
     const offMs = simState?.off_ms ?? 500;
     const totalMs = onMs + offMs;
-    // on% = fraction of cycle the LED is lit
     const onPct  = Math.round((onMs  / totalMs) * 100);
-    const offPct = 100 - onPct;
-    // Unique animation name per LED position to avoid conflicts
     const animName = `led-blink-${Math.round(mx)}-${Math.round(my)}`;
     return (
       <g>
@@ -70,7 +100,12 @@ function Led({ s, e, simState }) {
             0%        { opacity: 1; }
             ${onPct}% { opacity: 1; }
             ${onPct + 0.1}% { opacity: 0; }
-            ${100 - offPct + onPct}% { opacity: 0; }
+            100%      { opacity: 0; }
+          }
+          @keyframes ${animName}-off {
+            0%        { opacity: 0; }
+            ${onPct}% { opacity: 0; }
+            ${onPct + 0.1}% { opacity: 1; }
             100%      { opacity: 1; }
           }
         `}</style>
@@ -80,11 +115,12 @@ function Led({ s, e, simState }) {
           <circle cx={mx} cy={my} r={11} fill="#fca5a5" opacity={0.55} />
           <circle cx={mx} cy={my} r={5} fill="#fff" stroke="#ef4444" strokeWidth={1.5} />
         </g>
-        <g style={{ animation: `${animName} ${totalMs}ms step-start infinite`, animationDelay: `${onMs}ms` }}>
+        <g style={{ animation: `${animName}-off ${totalMs}ms step-start infinite` }}>
           <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#dc2626" strokeWidth={2} strokeLinecap="round" />
           <circle cx={mx} cy={my} r={9} fill="#ef4444" opacity={0.18} />
           <circle cx={mx} cy={my} r={5} fill="#ef4444" stroke="#991b1b" strokeWidth={1} />
         </g>
+        <LedPolarityLabels s={s} e={e} />
       </g>
     );
   }
@@ -95,6 +131,7 @@ function Led({ s, e, simState }) {
       <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#dc2626" strokeWidth={2} strokeLinecap="round" />
       <circle cx={mx} cy={my} r={9} fill="#ef4444" opacity={0.18} />
       <circle cx={mx} cy={my} r={5} fill="#ef4444" stroke="#991b1b" strokeWidth={1} />
+      <LedPolarityLabels s={s} e={e} />
     </g>
   );
 }

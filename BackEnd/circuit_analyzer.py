@@ -95,6 +95,7 @@ class LedAnalysis(TypedDict):
     connected_pin: Optional[str]   # e.g. "9", "13", None
     has_gnd_path: bool
     has_series_resistor: bool
+    reversed: bool                 # True if anode/cathode are swapped
 
 
 # ── Main analyzer ─────────────────────────────────────────────────────────────
@@ -161,41 +162,50 @@ def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis]:
         start_root = uf.find(sk)
         end_root   = uf.find(ek)
 
-        # Find if either end is in a net with an Arduino digital/PWM output pin
+        # Convention: start = anode (+), end = cathode (−)
+        # Check if an Arduino output pin is on the anode (start) side
         connected_pin: Optional[str] = None
+        pin_on_cathode: Optional[str] = None  # pin wired to wrong end
         for pin, pin_root in arduino_pin_nets.items():
             if pin in ARDUINO_GND_PINS or pin in ARDUINO_5V_PINS:
                 continue
-            if pin_root == start_root or pin_root == end_root:
+            if pin_root == start_root:
                 connected_pin = pin
                 break
+            if pin_root == end_root:
+                pin_on_cathode = pin  # reversed
 
-        # Check GND path on either side
-        has_gnd = (start_root == gnd_root or end_root == gnd_root)
+        # Check GND on cathode (end) side only — correct polarity
+        has_gnd_correct = (end_root == gnd_root)
+        # GND on anode side = also reversed
+        has_gnd_reversed = (start_root == gnd_root)
 
-        # Check for series resistor: is there a resistor whose both endpoints
-        # are in the net chain between the pin and the LED?
-        # Simplified: a resistor exists in the circuit AND one of its endpoints
-        # is in the same net as the LED anode, AND the other is in the same net
-        # as the Arduino pin.
+        # Determine if polarity is reversed
+        is_reversed = (pin_on_cathode is not None and has_gnd_reversed) or \
+                      (connected_pin is None and pin_on_cathode is not None)
+
+        # If reversed, still report which pin so we can show the warning
+        effective_pin = connected_pin or (pin_on_cathode if is_reversed else None)
+
+        # Check for series resistor between the Arduino pin and the LED anode
         has_resistor = False
-        if connected_pin:
-            pin_root = arduino_pin_nets[connected_pin]
+        if effective_pin:
+            pin_root_eff = arduino_pin_nets[effective_pin]
             for comp in components:
                 if comp.get('type') != 'resistor':
                     continue
                 r_sk = uf.find(_endpoint_key(comp['start']))
                 r_ek = uf.find(_endpoint_key(comp['end']))
-                # Resistor bridges pin net ↔ LED net
-                if (r_sk == pin_root and (r_ek == start_root or r_ek == end_root)) or \
-                   (r_ek == pin_root and (r_sk == start_root or r_sk == end_root)):
+                if (r_sk == pin_root_eff and (r_ek == start_root or r_ek == end_root)) or \
+                   (r_ek == pin_root_eff and (r_sk == start_root or r_sk == end_root)):
                     has_resistor = True
                     break
 
         results[led['id']] = LedAnalysis(
-            connected_pin=connected_pin,
-            has_gnd_path=has_gnd,
+            connected_pin=effective_pin,
+            has_gnd_path=has_gnd_correct or has_gnd_reversed,
             has_series_resistor=has_resistor,
+            reversed=is_reversed,
         )
 
     return results
