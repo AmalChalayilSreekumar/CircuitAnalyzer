@@ -1,0 +1,359 @@
+// Renders all circuit components as SVG elements with edit-mode interactivity.
+import { resolveEndpoint } from '../utils/resolveEndpoint.js';
+
+// ── Shape renderers ────────────────────────────────────────────────────────────
+
+function Wire({ s, e }) {
+  return (
+    <line x1={s.x} y1={s.y} x2={e.x} y2={e.y}
+      stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
+  );
+}
+
+function Resistor({ s, e }) {
+  const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+  const horiz = Math.abs(e.x - s.x) >= Math.abs(e.y - s.y);
+  const bw = horiz ? Math.abs(e.x - s.x) * 0.45 : 9;
+  const bh = horiz ? 9 : Math.abs(e.y - s.y) * 0.45;
+  return (
+    <g>
+      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#92400e" strokeWidth={2} strokeLinecap="round" />
+      <rect x={mx - bw / 2} y={my - bh / 2} width={bw} height={bh}
+        rx={2} fill="#d97706" stroke="#92400e" strokeWidth={1} />
+    </g>
+  );
+}
+
+// Polarity labels: small "+" near anode (start), "−" near cathode (end)
+// Offset the labels slightly away from the endpoint along the wire direction.
+function LedPolarityLabels({ s, e }) {
+  const dx = e.x - s.x, dy = e.y - s.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  // Place labels 10px inward from each endpoint
+  const anode    = { x: s.x + ux * 12, y: s.y + uy * 12 };
+  const cathode  = { x: e.x - ux * 12, y: e.y - uy * 12 };
+  // Perpendicular offset so labels sit beside the wire, not on it
+  const px = -uy * 9, py = ux * 9;
+  return (
+    <g pointerEvents="none" fontFamily="monospace" fontSize={8} fontWeight="bold">
+      <text x={anode.x + px} y={anode.y + py} fill="#4ade80" textAnchor="middle" dominantBaseline="middle">+</text>
+      <text x={cathode.x + px} y={cathode.y + py} fill="#60a5fa" textAnchor="middle" dominantBaseline="middle">−</text>
+    </g>
+  );
+}
+
+function Led({ s, e, simState }) {
+  const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+  const state = simState?.state ?? 'off';
+  const brightness = simState?.brightness ?? 1.0;
+
+  if (state === 'blown') {
+    return (
+      <g>
+        <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#4b5563" strokeWidth={2} strokeLinecap="round" />
+        <circle cx={mx} cy={my} r={9} fill="#374151" opacity={0.5} />
+        <circle cx={mx} cy={my} r={5} fill="#6b7280" stroke="#4b5563" strokeWidth={1} />
+        <line x1={mx - 4} y1={my - 4} x2={mx + 4} y2={my + 4} stroke="#dc2626" strokeWidth={1.5} strokeLinecap="round" />
+        <line x1={mx + 4} y1={my - 4} x2={mx - 4} y2={my + 4} stroke="#dc2626" strokeWidth={1.5} strokeLinecap="round" />
+        <LedPolarityLabels s={s} e={e} />
+      </g>
+    );
+  }
+
+  if (state === 'reversed') {
+    return (
+      <g>
+        <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#7c3aed" strokeWidth={2} strokeLinecap="round" strokeDasharray="4 3" />
+        <circle cx={mx} cy={my} r={9} fill="#4c1d95" opacity={0.5} />
+        <circle cx={mx} cy={my} r={5} fill="#7c3aed" stroke="#5b21b6" strokeWidth={1} />
+        {/* Reverse arrow */}
+        <text x={mx} y={my + 0.5} fill="#c4b5fd" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none">↺</text>
+        <LedPolarityLabels s={s} e={e} />
+      </g>
+    );
+  }
+
+  if (state === 'on') {
+    const alpha = Math.round(brightness * 255).toString(16).padStart(2, '0');
+    return (
+      <g>
+        <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#ef4444" strokeWidth={2} strokeLinecap="round" />
+        <circle cx={mx} cy={my} r={18} fill={`#ef4444${alpha}`} opacity={0.25 * brightness} />
+        <circle cx={mx} cy={my} r={11} fill="#fca5a5" opacity={0.55 * brightness} />
+        <circle cx={mx} cy={my} r={5} fill="#fff" stroke="#ef4444" strokeWidth={1.5} />
+        <LedPolarityLabels s={s} e={e} />
+      </g>
+    );
+  }
+
+  if (state === 'blinking') {
+    const onMs  = simState?.on_ms  ?? 500;
+    const offMs = simState?.off_ms ?? 500;
+    const totalMs = onMs + offMs;
+    const onPct  = Math.round((onMs  / totalMs) * 100);
+    const animName = `led-blink-${Math.round(mx)}-${Math.round(my)}`;
+    return (
+      <g>
+        <style>{`
+          @keyframes ${animName} {
+            0%        { opacity: 1; }
+            ${onPct}% { opacity: 1; }
+            ${onPct + 0.1}% { opacity: 0; }
+            100%      { opacity: 0; }
+          }
+          @keyframes ${animName}-off {
+            0%        { opacity: 0; }
+            ${onPct}% { opacity: 0; }
+            ${onPct + 0.1}% { opacity: 1; }
+            100%      { opacity: 1; }
+          }
+        `}</style>
+        <g style={{ animation: `${animName} ${totalMs}ms step-start infinite` }}>
+          <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#ef4444" strokeWidth={2} strokeLinecap="round" />
+          <circle cx={mx} cy={my} r={18} fill="#ef4444" opacity={0.25} />
+          <circle cx={mx} cy={my} r={11} fill="#fca5a5" opacity={0.55} />
+          <circle cx={mx} cy={my} r={5} fill="#fff" stroke="#ef4444" strokeWidth={1.5} />
+        </g>
+        <g style={{ animation: `${animName}-off ${totalMs}ms step-start infinite` }}>
+          <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#dc2626" strokeWidth={2} strokeLinecap="round" />
+          <circle cx={mx} cy={my} r={9} fill="#ef4444" opacity={0.18} />
+          <circle cx={mx} cy={my} r={5} fill="#ef4444" stroke="#991b1b" strokeWidth={1} />
+        </g>
+        <LedPolarityLabels s={s} e={e} />
+      </g>
+    );
+  }
+
+  // Default: off
+  return (
+    <g>
+      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#dc2626" strokeWidth={2} strokeLinecap="round" />
+      <circle cx={mx} cy={my} r={9} fill="#ef4444" opacity={0.18} />
+      <circle cx={mx} cy={my} r={5} fill="#ef4444" stroke="#991b1b" strokeWidth={1} />
+      <LedPolarityLabels s={s} e={e} />
+    </g>
+  );
+}
+
+function RgbLed({ common, r, g, b, simState }) {
+  const cx = (common.x + r.x + g.x + b.x) / 4;
+  const cy = (common.y + r.y + g.y + b.y) / 4;
+
+  const rBr = simState?.r?.state === 'on' || simState?.r?.state === 'blinking' ? (simState.r.brightness ?? 1) : 0;
+  const gBr = simState?.g?.state === 'on' || simState?.g?.state === 'blinking' ? (simState.g.brightness ?? 1) : 0;
+  const bBr = simState?.b?.state === 'on' || simState?.b?.state === 'blinking' ? (simState.b.brightness ?? 1) : 0;
+
+  const toHex = v => Math.round(v * 255).toString(16).padStart(2, '0');
+  const bodyColor = `#${toHex(rBr)}${toHex(gBr)}${toHex(bBr)}`;
+  const isAnyOn = rBr > 0 || gBr > 0 || bBr > 0;
+
+  return (
+    <g>
+      {/* Lead lines from body center to each pin */}
+      <line x1={cx} y1={cy} x2={r.x} y2={r.y} stroke="#ef4444" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={g.x} y2={g.y} stroke="#22c55e" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={b.x} y2={b.y} stroke="#3b82f6" strokeWidth={2} strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={common.x} y2={common.y} stroke="#6b7280" strokeWidth={2} strokeLinecap="round" />
+      {/* Glow halos when any channel is on */}
+      {isAnyOn && <circle cx={cx} cy={cy} r={20} fill={bodyColor} opacity={0.2} />}
+      {isAnyOn && <circle cx={cx} cy={cy} r={13} fill={bodyColor} opacity={0.45} />}
+      {/* LED body */}
+      <circle cx={cx} cy={cy} r={9} fill={isAnyOn ? bodyColor : '#1f2937'} stroke={isAnyOn ? bodyColor : '#374151'} strokeWidth={1.5} />
+      {isAnyOn && <circle cx={cx} cy={cy} r={4} fill="#fff" opacity={0.75} />}
+      {/* Pin labels */}
+      <text x={r.x} y={r.y - 9} fill="#ef4444" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">R</text>
+      <text x={g.x} y={g.y - 9} fill="#22c55e" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">G</text>
+      <text x={b.x} y={b.y - 9} fill="#3b82f6" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">B</text>
+      <text x={common.x} y={common.y - 9} fill="#9ca3af" fontSize={7} fontWeight="bold" textAnchor="middle" dominantBaseline="middle" pointerEvents="none" fontFamily="monospace">−</text>
+    </g>
+  );
+}
+
+function Battery({ s, e }) {
+  const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+  const horiz = Math.abs(e.x - s.x) >= Math.abs(e.y - s.y);
+  return (
+    <g>
+      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="#374151" strokeWidth={2} strokeLinecap="round" />
+      {horiz ? (
+        <>
+          <line x1={mx - 1} y1={my - 7} x2={mx - 1} y2={my + 7} stroke="#374151" strokeWidth={3} />
+          <line x1={mx + 3} y1={my - 4} x2={mx + 3} y2={my + 4} stroke="#374151" strokeWidth={1.5} />
+        </>
+      ) : (
+        <>
+          <line x1={mx - 7} y1={my - 1} x2={mx + 7} y2={my - 1} stroke="#374151" strokeWidth={3} />
+          <line x1={mx - 4} y1={my + 3} x2={mx + 4} y2={my + 3} stroke="#374151" strokeWidth={1.5} />
+        </>
+      )}
+    </g>
+  );
+}
+
+function Switch({ s, e, closed }) {
+  const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+  const dx = e.x - s.x, dy = e.y - s.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len, uy = dy / len; // unit vector along wire
+  const px = -uy, py = ux;           // perpendicular (for open lever)
+
+  // Terminals: 14px from center on each side
+  const t1 = { x: mx - ux * 14, y: my - uy * 14 };
+  const t2 = { x: mx + ux * 14, y: my + uy * 14 };
+
+  const color = closed ? '#22c55e' : '#f59e0b';
+
+  // Open lever: pivot at t1, angled ~40° away from the wire plane
+  const leverTip = closed
+    ? t2
+    : { x: t1.x + ux * 22 + px * 14, y: t1.y + uy * 22 + py * 14 };
+
+  return (
+    <g style={{ cursor: 'pointer' }}>
+      {/* Lead wires */}
+      <line x1={s.x} y1={s.y} x2={t1.x} y2={t1.y} stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
+      <line x1={e.x} y1={e.y} x2={t2.x} y2={t2.y} stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
+      {/* Terminals */}
+      <circle cx={t1.x} cy={t1.y} r={3.5} fill={color} stroke="#fff" strokeWidth={0.5} />
+      <circle cx={t2.x} cy={t2.y} r={3.5} fill={color} stroke="#fff" strokeWidth={0.5} />
+      {/* Lever */}
+      <line
+        x1={t1.x} y1={t1.y}
+        x2={leverTip.x} y2={leverTip.y}
+        stroke={color} strokeWidth={2.5} strokeLinecap="round"
+      />
+      {/* State label */}
+      <text
+        x={mx + px * 16} y={my + py * 16}
+        fill={color} fontSize={7} fontWeight="bold"
+        textAnchor="middle" dominantBaseline="middle"
+        pointerEvents="none" fontFamily="monospace"
+      >
+        {closed ? 'ON' : 'OFF'}
+      </text>
+    </g>
+  );
+}
+
+// Led needs special treatment (simState prop), others are straightforward
+const SHAPES = { wire: Wire, resistor: Resistor, battery: Battery };
+
+// Component types whose endpoints can be dragged individually
+const ENDPOINT_DRAGGABLE = new Set(['led', 'resistor', 'wire', 'battery', 'switch']);
+
+// ── Selection highlight ────────────────────────────────────────────────────────
+
+function SelectionRing({ s, e }) {
+  const pad = 10;
+  const x = Math.min(s.x, e.x) - pad;
+  const y = Math.min(s.y, e.y) - pad;
+  const w = Math.max(Math.abs(e.x - s.x) + pad * 2, pad * 2);
+  const h = Math.max(Math.abs(e.y - s.y) + pad * 2, pad * 2);
+  return (
+    <rect x={x} y={y} width={w} height={h} rx={5}
+      fill="none" stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="5 3"
+      pointerEvents="none"
+    />
+  );
+}
+
+// ── Wire preview (during placement) ───────────────────────────────────────────
+
+export function WirePreview({ start, toBoard }) {
+  if (!start || !toBoard) return null;
+  const s = resolveEndpoint(start);
+  return (
+    <line
+      x1={s.x} y1={s.y} x2={toBoard.x} y2={toBoard.y}
+      stroke="#fbbf24" strokeWidth={2} strokeDasharray="6 4"
+      strokeLinecap="round" pointerEvents="none"
+    />
+  );
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
+
+export default function CanvasComponents({ components, selectedId, editMode, onMouseDown, onComponentClick, onEndpointMouseDown, simulationStates }) {
+  return (
+    <g>
+      {components.map(comp => {
+        const isSelected = comp.id === selectedId;
+
+        // RGB LED has 4 endpoints and its own rendering path
+        if (comp.type === 'rgb-led') {
+          const common = resolveEndpoint(comp.common);
+          const r      = resolveEndpoint(comp.r);
+          const g      = resolveEndpoint(comp.g);
+          const b      = resolveEndpoint(comp.b);
+          const allX   = [common.x, r.x, g.x, b.x];
+          const allY   = [common.y, r.y, g.y, b.y];
+          const sel_s  = { x: Math.min(...allX), y: Math.min(...allY) };
+          const sel_e  = { x: Math.max(...allX), y: Math.max(...allY) };
+          const cx     = (common.x + r.x + g.x + b.x) / 4;
+          const cy     = (common.y + r.y + g.y + b.y) / 4;
+          return (
+            <g key={comp.id}>
+              {isSelected && <SelectionRing s={sel_s} e={sel_e} />}
+              <RgbLed common={common} r={r} g={g} b={b} simState={simulationStates?.[comp.id]} />
+              {editMode && (
+                <circle cx={cx} cy={cy} r={16} fill="transparent"
+                  style={{ cursor: 'pointer' }}
+                  onMouseDown={ev => onMouseDown(ev, comp)}
+                  onClick={ev => onComponentClick(ev, comp.id)}
+                />
+              )}
+            </g>
+          );
+        }
+
+        const s = resolveEndpoint(comp.start);
+        const e = resolveEndpoint(comp.end);
+
+        const Shape = comp.type === 'led'
+          ? <Led s={s} e={e} simState={simulationStates?.[comp.id]} />
+          : comp.type === 'switch'
+          ? <Switch s={s} e={e} closed={!!comp.closed} />
+          : (() => { const S = SHAPES[comp.type] ?? Wire; return <S s={s} e={e} />; })();
+
+        return (
+          <g key={comp.id}>
+            {isSelected && <SelectionRing s={s} e={e} />}
+            {Shape}
+
+            {/* Wide transparent hit area — always present so you can select in edit mode */}
+            {editMode && (
+              <line
+                x1={s.x} y1={s.y} x2={e.x} y2={e.y}
+                stroke="transparent" strokeWidth={18}
+                style={{ cursor: 'pointer' }}
+                onMouseDown={ev => onMouseDown(ev, comp)}
+                onClick={ev => onComponentClick(ev, comp.id)}
+              />
+            )}
+
+            {/* Draggable endpoint handles for LED and Resistor */}
+            {isSelected && ENDPOINT_DRAGGABLE.has(comp.type) && (
+              <>
+                <circle
+                  cx={s.x} cy={s.y} r={7}
+                  fill="#fbbf24" stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor: 'crosshair' }}
+                  onMouseDown={ev => { ev.stopPropagation(); onEndpointMouseDown(ev, comp.id, 'start'); }}
+                  onClick={ev => ev.stopPropagation()}
+                />
+                <circle
+                  cx={e.x} cy={e.y} r={7}
+                  fill="#fbbf24" stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor: 'crosshair' }}
+                  onMouseDown={ev => { ev.stopPropagation(); onEndpointMouseDown(ev, comp.id, 'end'); }}
+                  onClick={ev => ev.stopPropagation()}
+                />
+              </>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
