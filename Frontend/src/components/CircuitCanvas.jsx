@@ -14,7 +14,7 @@ import { snapToEndpoint } from '../utils/snapToEndpoint.js';
 
 const INITIAL_PAN = { x: 120, y: 80 };
 
-export default function CircuitCanvas({ circuitJson, comments, commentMode, onAddComment, onCircuitChange, simulationStates }) {
+export default function CircuitCanvas({ circuitJson, comments, commentMode, onAddComment, onCircuitChange, simulationStates, readOnly }) {
   const containerRef = useRef(null);
 
   // ── Pan ──────────────────────────────────────────────────────────────────────
@@ -68,6 +68,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
   // ── Delete key ───────────────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e) {
+      if (readOnly) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCompId) {
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -121,6 +122,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
 
   // ── Endpoint drag start ──────────────────────────────────────────────────────
   function handleEndpointMouseDown(_e, compId, which) {
+    if (readOnly) return;
     // stopPropagation already called by the handle; just record the drag
     draggingEndpointRef.current = { compId, which };
   }
@@ -207,16 +209,18 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
   return (
     <div className="flex w-full h-full" style={{ background: '#111827' }}>
 
-      {/* ── Left palette ── */}
-      <ComponentPalette
-        selected={selectedTool}
-        onSelect={tool => {
-          setSelectedTool(prev => prev === tool ? null : tool);
-          setPendingPoint(null);
-          setPendingPoints([]);
-          setSelectedCompId(null);
-        }}
-      />
+      {/* ── Left palette (owner only) ── */}
+      {!readOnly && (
+        <ComponentPalette
+          selected={selectedTool}
+          onSelect={tool => {
+            setSelectedTool(prev => prev === tool ? null : tool);
+            setPendingPoint(null);
+            setPendingPoints([]);
+            setSelectedCompId(null);
+          }}
+        />
+      )}
 
       {/* ── Canvas ── */}
       <div
@@ -273,6 +277,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
               editMode={!editMode}   // allow selecting when no tool is active
               onMouseDown={() => {}}
               onComponentClick={(e, id) => {
+                if (readOnly) return;
                 e.stopPropagation();
                 const comp = components.find(c => c.id === id);
                 if (comp?.type === 'switch') {

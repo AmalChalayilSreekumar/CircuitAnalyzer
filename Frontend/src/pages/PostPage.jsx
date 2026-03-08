@@ -1,16 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
+import { useAuth0 } from '@auth0/auth0-react';
 import CircuitCanvas from '../components/CircuitCanvas.jsx';
 import AIChatPanel from '../components/AIChatPanel.jsx';
-import { CURRENT_USER } from '../utils/mockData.js';
 import { supabase } from '../utils/supabase.js';
-
-// TODO: derive isOwner from Auth0 user vs post.user_id
-const IS_OWNER = true;
 
 export default function PostPage() {
   const { id } = useParams();
+  const location = useLocation();
+  const { user, isAuthenticated, loginWithRedirect, logout } = useAuth0();
 
+  const [supabaseUser, setSupabaseUser] = useState(null);
   const [post, setPost]               = useState(null);
   const [circuitJson, setCircuitJson] = useState(null);
   const [loading, setLoading]         = useState(true);
@@ -34,6 +34,28 @@ export default function PostPage() {
   const [simStatus, setSimStatus]               = useState('idle'); // 'idle'|'running'|'done'|'error'
   const [simErrors, setSimErrors]               = useState([]);
   const [simWarnings, setSimWarnings]           = useState([]);
+
+  // ── Sync Auth0 user to Supabase users table ──────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !user) { setSupabaseUser(null); return; }
+    async function syncUser() {
+      const { data: existing } = await supabase
+        .from('users')
+        .select()
+        .eq('auth0_user_id', user.sub)
+        .single();
+      if (existing) { setSupabaseUser(existing); return; }
+      const { data: created } = await supabase
+        .from('users')
+        .insert({ auth0_user_id: user.sub, email: user.email, username: user.nickname ?? user.name, is_pseudo_user: false })
+        .select()
+        .single();
+      if (created) setSupabaseUser(created);
+    }
+    syncUser();
+  }, [isAuthenticated, user]);
+
+  const isOwner = !!supabaseUser && !!post && supabaseUser.id === post.user_id;
 
   async function runSimulation() {
     if (!circuitJson) return;
@@ -120,7 +142,7 @@ export default function PostPage() {
 
   // ── Debounced save of circuit_json ──────────────────────────────────────────
   useEffect(() => {
-    if (!isLoadedRef.current || circuitJson === null) return;
+    if (!isLoadedRef.current || circuitJson === null || !isOwner) return;
 
     setSaveStatus('saving');
     clearTimeout(saveTimerRef.current);
@@ -134,11 +156,11 @@ export default function PostPage() {
     }, 800);
 
     return () => clearTimeout(saveTimerRef.current);
-  }, [circuitJson, id]);
+  }, [circuitJson, id, isOwner]);
 
   // ── Debounced save of arduino_code ──────────────────────────────────────────
   useEffect(() => {
-    if (!isLoadedRef.current) return;
+    if (!isLoadedRef.current || !isOwner) return;
 
     setSaveStatus('saving');
     clearTimeout(codeTimerRef.current);
@@ -152,12 +174,13 @@ export default function PostPage() {
     }, 800);
 
     return () => clearTimeout(codeTimerRef.current);
-  }, [arduinoCode, id]);
+  }, [arduinoCode, id, isOwner]);
 
   const handleAddComment = useCallback(async ({ x, y, body }) => {
+    if (!supabaseUser) return;
     const { data, error: err } = await supabase
       .from('canvas_comments')
-      .insert({ post_id: id, user_id: CURRENT_USER.id, body, x_coord: x, y_coord: y })
+      .insert({ post_id: id, user_id: supabaseUser.id, body, x_coord: x, y_coord: y })
       .select('*, user:user_id(*)')
       .single();
 
@@ -165,7 +188,7 @@ export default function PostPage() {
       setComments(prev => [...prev, data]);
     }
     setCommentMode(false);
-  }, [id]);
+  }, [id, supabaseUser]);
 
   // ── Loading / error states ──────────────────────────────────────────────────
   if (loading) {
@@ -271,6 +294,10 @@ export default function PostPage() {
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700',
             ].join(' ')}
             onClick={() => {
+              if (!isAuthenticated) {
+                loginWithRedirect({ appState: { returnTo: location.pathname } });
+                return;
+              }
               setCommentMode(v => !v);
               setChatOpen(false);
             }}
@@ -283,7 +310,7 @@ export default function PostPage() {
           </button>
 
           {/* AI Chat (owner only) */}
-          {IS_OWNER && (
+          {isOwner && (
             <button
               className={[
                 'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors',
@@ -303,6 +330,28 @@ export default function PostPage() {
               AI Chat
             </button>
           )}
+          {/* Auth */}
+          <div className="w-px h-5 bg-gray-700" />
+          {isAuthenticated ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 max-w-[120px] truncate">
+                {supabaseUser?.username ?? user?.name}
+              </span>
+              <button
+                className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
+                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              >
+                Log out
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+              onClick={() => loginWithRedirect({ appState: { returnTo: location.pathname } })}
+            >
+              Log in
+            </button>
+          )}
         </div>
       </header>
 
@@ -311,9 +360,10 @@ export default function PostPage() {
         <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-5 py-3">
           <p className="text-xs text-gray-500 font-medium mb-2 uppercase tracking-wide">Arduino Code</p>
           <textarea
-            className="w-full h-36 bg-gray-950 text-green-400 font-mono text-xs leading-relaxed resize-none outline-none border border-gray-800 rounded p-2"
+            className="w-full h-36 bg-gray-950 text-green-400 font-mono text-xs leading-relaxed resize-none outline-none border border-gray-800 rounded p-2 disabled:opacity-50 disabled:cursor-not-allowed"
             value={arduinoCode}
             onChange={e => setArduinoCode(e.target.value)}
+            readOnly={!isOwner}
             spellCheck={false}
           />
         </div>
@@ -341,9 +391,9 @@ export default function PostPage() {
           comments={comments}
           commentMode={commentMode}
           onAddComment={handleAddComment}
-          currentUser={CURRENT_USER}
           onCircuitChange={setCircuitJson}
           simulationStates={simulationStates}
+          readOnly={!isOwner}
         />
       </div>
 
@@ -351,7 +401,7 @@ export default function PostPage() {
       <AIChatPanel
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}
-        isOwner={IS_OWNER}
+        isOwner={isOwner}
       />
     </div>
   );
