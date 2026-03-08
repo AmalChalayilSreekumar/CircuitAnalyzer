@@ -29,6 +29,45 @@ export default function PostPage() {
   const [chatOpen, setChatOpen]       = useState(false);
   const [codeOpen, setCodeOpen]       = useState(false);
 
+  // ── Simulation state ────────────────────────────────────────────────────────
+  const [simulationStates, setSimulationStates] = useState(null);
+  const [simStatus, setSimStatus]               = useState('idle'); // 'idle'|'running'|'done'|'error'
+  const [simErrors, setSimErrors]               = useState([]);
+  const [simWarnings, setSimWarnings]           = useState([]);
+
+  async function runSimulation() {
+    if (!circuitJson) return;
+    setSimStatus('running');
+    setSimErrors([]);
+    setSimWarnings([]);
+    try {
+      const res = await fetch('http://localhost:8000/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          components: circuitJson?.hardware?.components ?? [],
+          arduino_code: arduinoCode,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      setSimulationStates(data.component_states);
+      setSimErrors(data.parse_errors ?? []);
+      setSimWarnings(data.warnings ?? []);
+      setSimStatus('done');
+    } catch (err) {
+      setSimErrors([err.message]);
+      setSimStatus('error');
+    }
+  }
+
+  function stopSimulation() {
+    setSimulationStates(null);
+    setSimStatus('idle');
+    setSimErrors([]);
+    setSimWarnings([]);
+  }
+
   // ── Fetch post + comments from Supabase ─────────────────────────────────────
   useEffect(() => {
     async function fetchData() {
@@ -180,6 +219,35 @@ export default function PostPage() {
             {'</>'}
           </button>
 
+          {/* Run / Stop simulation */}
+          {simStatus === 'done' || simStatus === 'error' ? (
+            <button
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+              onClick={stopSimulation}
+            >
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="5" y="5" width="14" height="14" rx="2" />
+              </svg>
+              Stop
+            </button>
+          ) : (
+            <button
+              className={[
+                'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors',
+                simStatus === 'running'
+                  ? 'bg-green-800 text-green-300 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-500',
+              ].join(' ')}
+              onClick={runSimulation}
+              disabled={simStatus === 'running'}
+            >
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {simStatus === 'running' ? 'Running…' : 'Run'}
+            </button>
+          )}
+
           {/* Divider */}
           <div className="w-px h-5 bg-gray-700" />
 
@@ -240,6 +308,18 @@ export default function PostPage() {
         </div>
       )}
 
+      {/* ── Simulation error / warning banner ── */}
+      {(simErrors.length > 0 || simWarnings.length > 0) && (
+        <div className="shrink-0 border-b border-gray-800 px-4 py-2 flex flex-col gap-1 bg-gray-950">
+          {simErrors.map((err, i) => (
+            <p key={i} className="text-xs text-red-400 font-mono">✗ {err}</p>
+          ))}
+          {simWarnings.map((w, i) => (
+            <p key={i} className="text-xs text-amber-400 font-mono">⚠ {w}</p>
+          ))}
+        </div>
+      )}
+
       {/* ── Canvas area ── */}
       <div
         className="flex-1 relative overflow-hidden transition-all duration-200"
@@ -252,6 +332,7 @@ export default function PostPage() {
           onAddComment={handleAddComment}
           currentUser={CURRENT_USER}
           onCircuitChange={setCircuitJson}
+          simulationStates={simulationStates}
         />
       </div>
 

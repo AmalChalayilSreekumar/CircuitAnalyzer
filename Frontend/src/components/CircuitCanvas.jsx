@@ -14,7 +14,7 @@ import { snapToEndpoint } from '../utils/snapToEndpoint.js';
 
 const INITIAL_PAN = { x: 120, y: 80 };
 
-export default function CircuitCanvas({ circuitJson, comments, commentMode, onAddComment, onCircuitChange }) {
+export default function CircuitCanvas({ circuitJson, comments, commentMode, onAddComment, onCircuitChange, simulationStates }) {
   const containerRef = useRef(null);
 
   // ── Pan ──────────────────────────────────────────────────────────────────────
@@ -249,6 +249,7 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
                 setSelectedCompId(prev => prev === id ? null : id);
               }}
               onEndpointMouseDown={handleEndpointMouseDown}
+              simulationStates={simulationStates}
             />
 
             {/* Rubber-band wire preview */}
