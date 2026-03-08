@@ -58,6 +58,9 @@ function Battery({ s, e }) {
 
 const SHAPES = { wire: Wire, resistor: Resistor, led: Led, battery: Battery };
 
+// Component types whose endpoints can be dragged individually
+const ENDPOINT_DRAGGABLE = new Set(['led', 'resistor', 'wire', 'battery']);
+
 // ── Selection highlight ────────────────────────────────────────────────────────
 
 function SelectionRing({ s, e }) {
@@ -90,7 +93,7 @@ export function WirePreview({ start, toBoard }) {
 
 // ── Main export ────────────────────────────────────────────────────────────────
 
-export default function CanvasComponents({ components, selectedId, editMode, onMouseDown, onComponentClick }) {
+export default function CanvasComponents({ components, selectedId, editMode, onMouseDown, onComponentClick, onEndpointMouseDown }) {
   return (
     <g>
       {components.map(comp => {
@@ -109,10 +112,30 @@ export default function CanvasComponents({ components, selectedId, editMode, onM
               <line
                 x1={s.x} y1={s.y} x2={e.x} y2={e.y}
                 stroke="transparent" strokeWidth={18}
-                style={{ cursor: 'move' }}
+                style={{ cursor: 'pointer' }}
                 onMouseDown={ev => onMouseDown(ev, comp)}
                 onClick={ev => onComponentClick(ev, comp.id)}
               />
+            )}
+
+            {/* Draggable endpoint handles for LED and Resistor */}
+            {isSelected && ENDPOINT_DRAGGABLE.has(comp.type) && (
+              <>
+                <circle
+                  cx={s.x} cy={s.y} r={7}
+                  fill="#fbbf24" stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor: 'crosshair' }}
+                  onMouseDown={ev => { ev.stopPropagation(); onEndpointMouseDown(ev, comp.id, 'start'); }}
+                  onClick={ev => ev.stopPropagation()}
+                />
+                <circle
+                  cx={e.x} cy={e.y} r={7}
+                  fill="#fbbf24" stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor: 'crosshair' }}
+                  onMouseDown={ev => { ev.stopPropagation(); onEndpointMouseDown(ev, comp.id, 'end'); }}
+                  onClick={ev => ev.stopPropagation()}
+                />
+              </>
             )}
           </g>
         );

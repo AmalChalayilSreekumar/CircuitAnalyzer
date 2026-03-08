@@ -3,199 +3,177 @@ import {
   BOARD_WIDTH,
   BOARD_HEIGHT,
   BOARD_PADDING_X,
-  BOARD_PADDING_Y,
   COLS,
   ALL_ROWS,
   POWER_ROWS,
   TOP_MAIN_ROWS,
   BOTTOM_MAIN_ROWS,
-  POWER_ROW_CONFIG,
   getHoleX,
   getHoleY,
-  getHolePos,
 } from '../utils/boardCoords.js';
 
-const HOLE_R = 3.2;
+const HOLE_R = 2.8;
+const SEC_X0 = BOARD_PADDING_X - 14;
+const SEC_X1 = BOARD_PADDING_X + (COLS - 1) * PITCH + 14;
+const SEC_W  = SEC_X1 - SEC_X0;
 
-// ── Rail background strip ────────────────────────────────────────────────────
-function RailStrip({ row }) {
-  const cfg = POWER_ROW_CONFIG[row];
+// ── Power rail colored line ──────────────────────────────────────────────────
+function RailLine({ row }) {
   const y = getHoleY(row);
-  const x0 = BOARD_PADDING_X - 10;
-  const w = (COLS - 1) * PITCH + 20;
+  const isPos = row === 'w' || row === 'y';
   return (
-    <rect x={x0} y={y - 9} width={w} height={18} rx={4}
-      fill={cfg.fill} stroke={cfg.stroke} strokeWidth={0.6} />
+    <line
+      x1={SEC_X0} y1={y} x2={SEC_X1} y2={y}
+      stroke={isPos ? '#dc2626' : '#1d4ed8'}
+      strokeWidth={1.4}
+      opacity={0.55}
+    />
   );
 }
 
 // ── Holes for one row ────────────────────────────────────────────────────────
-function RowHoles({ row }) {
+function RowHoles({ row, editMode, pendingPoint, hoveredHole, onHoleClick, onHoleHover }) {
   const y = getHoleY(row);
-  const isPower = POWER_ROWS.includes(row);
   return (
     <>
-      {Array.from({ length: COLS }, (_, i) => (
-        <circle
-          key={i}
-          cx={getHoleX(i + 1)}
-          cy={y}
-          r={HOLE_R}
-          fill={isPower ? '#fff' : '#111827'}
-          stroke={isPower ? '#d1d5db' : '#374151'}
-          strokeWidth={0.5}
-        />
-      ))}
+      {Array.from({ length: COLS }, (_, i) => {
+        const col = i + 1;
+        const isHovered  = hoveredHole?.row  === row && hoveredHole?.col  === col;
+        const isPending  = pendingPoint?.row  === row && pendingPoint?.col === col;
+        return (
+          <g key={i}>
+            <circle
+              cx={getHoleX(col)} cy={y}
+              r={isPending ? 4.5 : HOLE_R}
+              fill={isPending ? '#fbbf24' : (isHovered && editMode ? '#4b5563' : '#1e293b')}
+              stroke={isPending ? '#fbbf24' : '#0f172a'}
+              strokeWidth={0.4}
+            />
+            {editMode && (
+              <circle
+                cx={getHoleX(col)} cy={y} r={9}
+                fill="transparent"
+                style={{ cursor: 'crosshair' }}
+                onClick={e => { e.stopPropagation(); onHoleClick?.({ row, col }); }}
+                onMouseEnter={() => onHoleHover?.({ row, col })}
+                onMouseLeave={() => onHoleHover?.(null)}
+              />
+            )}
+          </g>
+        );
+      })}
     </>
   );
 }
 
-// ── Component renderers ──────────────────────────────────────────────────────
-function Wire({ comp }) {
-  const s = getHolePos(comp.start.row, comp.start.col);
-  const e = getHolePos(comp.end.row, comp.end.col);
-  return (
-    <line x1={s.x} y1={s.y} x2={e.x} y2={e.y}
-      stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
-  );
-}
+// ── Main Breadboard (renders as <g> so it shares the parent SVG) ─────────────
+export default function Breadboard({
+  editMode     = false,
+  pendingPoint = null,
+  hoveredHole  = null,
+  onHoleClick,
+  onHoleHover,
+}) {
+  const topRailY1 = getHoleY('w') - PITCH * 0.58;
+  const topRailY2 = getHoleY('x') + PITCH * 0.58;
+  const topMainY1 = getHoleY('a') - PITCH * 0.52;
+  const topMainY2 = getHoleY('e') + PITCH * 0.52;
+  const botMainY1 = getHoleY('f') - PITCH * 0.52;
+  const botMainY2 = getHoleY('j') + PITCH * 0.52;
+  const botRailY1 = getHoleY('y') - PITCH * 0.58;
+  const botRailY2 = getHoleY('z') + PITCH * 0.58;
 
-function Resistor({ comp }) {
-  const s = getHolePos(comp.start.row, comp.start.col);
-  const e = getHolePos(comp.end.row, comp.end.col);
-  const mx = (s.x + e.x) / 2;
-  const my = (s.y + e.y) / 2;
-  const horiz = Math.abs(e.x - s.x) >= Math.abs(e.y - s.y);
-  const bw = horiz ? Math.abs(e.x - s.x) * 0.45 : 9;
-  const bh = horiz ? 9 : Math.abs(e.y - s.y) * 0.45;
   return (
     <g>
-      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y}
-        stroke="#92400e" strokeWidth={2} strokeLinecap="round" />
-      <rect x={mx - bw / 2} y={my - bh / 2} width={bw} height={bh} rx={2}
-        fill="#d97706" stroke="#92400e" strokeWidth={1} />
-    </g>
-  );
-}
+      {/* Board body — off-white / cream */}
+      <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} rx={10}
+        fill="#ede9e1" stroke="#c5bfb3" strokeWidth={1.5} />
 
-function Led({ comp }) {
-  const s = getHolePos(comp.start.row, comp.start.col);
-  const e = getHolePos(comp.end.row, comp.end.col);
-  const mx = (s.x + e.x) / 2;
-  const my = (s.y + e.y) / 2;
-  return (
-    <g>
-      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y}
-        stroke="#dc2626" strokeWidth={2} strokeLinecap="round" />
-      {/* glow */}
-      <circle cx={mx} cy={my} r={9} fill="#ef4444" opacity={0.18} />
-      {/* body */}
-      <circle cx={mx} cy={my} r={5} fill="#ef4444" stroke="#991b1b" strokeWidth={1} />
-    </g>
-  );
-}
+      {/* Main section panels */}
+      <rect x={SEC_X0} y={topMainY1} width={SEC_W} height={topMainY2 - topMainY1}
+        rx={4} fill="#e2ddd5" />
+      <rect x={SEC_X0} y={botMainY1} width={SEC_W} height={botMainY2 - botMainY1}
+        rx={4} fill="#e2ddd5" />
 
-function Battery({ comp }) {
-  const s = getHolePos(comp.start.row, comp.start.col);
-  const e = getHolePos(comp.end.row, comp.end.col);
-  const mx = (s.x + e.x) / 2;
-  const my = (s.y + e.y) / 2;
-  const horiz = Math.abs(e.x - s.x) >= Math.abs(e.y - s.y);
-  return (
-    <g>
-      <line x1={s.x} y1={s.y} x2={e.x} y2={e.y}
-        stroke="#374151" strokeWidth={2} strokeLinecap="round" />
-      {horiz ? (
-        <>
-          <line x1={mx - 1} y1={my - 7} x2={mx - 1} y2={my + 7} stroke="#374151" strokeWidth={3} />
-          <line x1={mx + 3} y1={my - 4} x2={mx + 3} y2={my + 4} stroke="#374151" strokeWidth={1.5} />
-        </>
-      ) : (
-        <>
-          <line x1={mx - 7} y1={my - 1} x2={mx + 7} y2={my - 1} stroke="#374151" strokeWidth={3} />
-          <line x1={mx - 4} y1={my + 3} x2={mx + 4} y2={my + 3} stroke="#374151" strokeWidth={1.5} />
-        </>
-      )}
-    </g>
-  );
-}
+      {/* Power rail panels */}
+      <rect x={SEC_X0} y={topRailY1} width={SEC_W} height={topRailY2 - topRailY1}
+        rx={3} fill="#f0ece4" stroke="#d4cec6" strokeWidth={0.6} />
+      <rect x={SEC_X0} y={botRailY1} width={SEC_W} height={botRailY2 - botRailY1}
+        rx={3} fill="#f0ece4" stroke="#d4cec6" strokeWidth={0.6} />
 
-function Component({ comp }) {
-  switch (comp.type) {
-    case 'wire':     return <Wire comp={comp} />;
-    case 'resistor': return <Resistor comp={comp} />;
-    case 'led':      return <Led comp={comp} />;
-    case 'battery':  return <Battery comp={comp} />;
-    default:         return <Wire comp={comp} />;
-  }
-}
+      {/* Red / blue rail lines */}
+      {POWER_ROWS.map(row => <RailLine key={row} row={row} />)}
 
-// ── Main Breadboard ──────────────────────────────────────────────────────────
-export default function Breadboard({ circuitJson }) {
-  const components = circuitJson?.hardware?.components ?? [];
-
-  // Center divider strip between row e and row f
-  const dividerY1 = getHoleY('e') + 11;
-  const dividerY2 = getHoleY('f') - 11;
-  const railX0 = BOARD_PADDING_X - 10;
-  const railW = (COLS - 1) * PITCH + 20;
-
-  return (
-    <svg
-      width={BOARD_WIDTH}
-      height={BOARD_HEIGHT}
-      style={{ display: 'block', userSelect: 'none' }}
-    >
-      {/* Board body */}
-      <rect width={BOARD_WIDTH} height={BOARD_HEIGHT} rx={10} fill="#1a5e3a" />
-
-      {/* Column tick marks every 5 cols */}
+      {/* Column numbers */}
       {Array.from({ length: COLS }, (_, i) => {
         const col = i + 1;
-        if (col % 5 !== 0 && col !== 1 && col !== 63) return null;
+        if (col % 5 !== 0 && col !== 1) return null;
         return (
-          <text key={col} x={getHoleX(col)} y={BOARD_PADDING_Y - 12}
-            fontSize={8} fill="#4ade80" textAnchor="middle" fontFamily="monospace">
-            {col}
-          </text>
+          <g key={col}>
+            <text x={getHoleX(col)} y={topMainY1 - 5}
+              fontSize={7} fill="#9ca3af" textAnchor="middle" fontFamily="monospace">
+              {col}
+            </text>
+            <text x={getHoleX(col)} y={botMainY2 + 12}
+              fontSize={7} fill="#9ca3af" textAnchor="middle" fontFamily="monospace">
+              {col}
+            </text>
+          </g>
         );
       })}
 
-      {/* Rail strips */}
-      {POWER_ROWS.map(row => <RailStrip key={row} row={row} />)}
-
-      {/* Center divider */}
-      <rect
-        x={railX0} y={dividerY1}
-        width={railW} height={dividerY2 - dividerY1}
-        fill="#0f3d28"
-      />
-
       {/* All holes */}
-      {ALL_ROWS.map(row => <RowHoles key={row} row={row} />)}
+      {ALL_ROWS.map(row => (
+        <RowHoles
+          key={row}
+          row={row}
+          editMode={editMode}
+          pendingPoint={pendingPoint}
+          hoveredHole={hoveredHole}
+          onHoleClick={onHoleClick}
+          onHoleHover={onHoleHover}
+        />
+      ))}
 
-      {/* Row labels (a-j) */}
+      {/* Row labels a-e / f-j — left */}
       {[...TOP_MAIN_ROWS, ...BOTTOM_MAIN_ROWS].map(row => (
-        <text key={row} x={BOARD_PADDING_X - 18} y={getHoleY(row) + 4}
-          fontSize={9} fill="#86efac" textAnchor="middle" fontFamily="monospace">
+        <text key={`lL-${row}`} x={SEC_X0 - 7} y={getHoleY(row) + 3.5}
+          fontSize={8} fill="#6b7280" textAnchor="middle" fontFamily="monospace">
           {row}
         </text>
       ))}
 
-      {/* Power rail +/− labels */}
+      {/* Row labels — right */}
+      {[...TOP_MAIN_ROWS, ...BOTTOM_MAIN_ROWS].map(row => (
+        <text key={`lR-${row}`} x={SEC_X1 + 7} y={getHoleY(row) + 3.5}
+          fontSize={8} fill="#6b7280" textAnchor="middle" fontFamily="monospace">
+          {row}
+        </text>
+      ))}
+
+      {/* Power rail +/− labels — left */}
       {POWER_ROWS.map(row => {
-        const cfg = POWER_ROW_CONFIG[row];
+        const isPos = row === 'w' || row === 'y';
         return (
-          <text key={row} x={BOARD_PADDING_X - 18} y={getHoleY(row) + 4}
+          <text key={`pL-${row}`} x={SEC_X0 - 7} y={getHoleY(row) + 4}
             fontSize={10} textAnchor="middle" fontFamily="monospace" fontWeight="bold"
-            fill={row === 'w' || row === 'y' ? '#fca5a5' : '#93c5fd'}>
-            {cfg.label}
+            fill={isPos ? '#dc2626' : '#1d4ed8'}>
+            {isPos ? '+' : '−'}
           </text>
         );
       })}
 
-      {/* Circuit components */}
-      {components.map(comp => <Component key={comp.id} comp={comp} />)}
-    </svg>
+      {/* Power rail +/− labels — right */}
+      {POWER_ROWS.map(row => {
+        const isPos = row === 'w' || row === 'y';
+        return (
+          <text key={`pR-${row}`} x={SEC_X1 + 7} y={getHoleY(row) + 4}
+            fontSize={10} textAnchor="middle" fontFamily="monospace" fontWeight="bold"
+            fill={isPos ? '#dc2626' : '#1d4ed8'}>
+            {isPos ? '+' : '−'}
+          </text>
+        );
+      })}
+    </g>
   );
 }

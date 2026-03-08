@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import CircuitCanvas from '../components/CircuitCanvas.jsx';
 import AIChatPanel from '../components/AIChatPanel.jsx';
-import { MOCK_POST, MOCK_COMMENTS, CURRENT_USER } from '../utils/mockData.js';
+import { CURRENT_USER } from '../utils/mockData.js';
+import { supabase } from '../utils/supabase.js';
 
 // TODO: derive isOwner from Auth0 user vs post.user_id
 const IS_OWNER = true;
@@ -10,29 +11,128 @@ const IS_OWNER = true;
 export default function PostPage() {
   const { id } = useParams();
 
-  // TODO: fetch post + comments from Supabase using `id`
-  const post = MOCK_POST;
-  const [comments, setComments] = useState(MOCK_COMMENTS);
+  const [post, setPost]               = useState(null);
+  const [circuitJson, setCircuitJson] = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
+  const [saveStatus, setSaveStatus]     = useState(null); // 'saving' | 'saved' | 'error'
+  const [arduinoCode, setArduinoCode]   = useState('');
+  const codeTimerRef = useRef(null);
+
+  const [comments, setComments] = useState([]);
+
+  // Prevent the initial load from triggering a save
+  const isLoadedRef   = useRef(false);
+  const saveTimerRef  = useRef(null);
 
   const [commentMode, setCommentMode] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [codeOpen, setCodeOpen] = useState(false);
+  const [chatOpen, setChatOpen]       = useState(false);
+  const [codeOpen, setCodeOpen]       = useState(false);
 
-  const handleAddComment = useCallback(({ x, y, body }) => {
-    // TODO: POST to Supabase canvas_comments
-    const newComment = {
-      id: `local-${Date.now()}`,
-      post_id: id,
-      user_id: CURRENT_USER.id,
-      body,
-      x_coord: x,
-      y_coord: y,
-      user: CURRENT_USER,
-      created_at: new Date().toISOString(),
-    };
-    setComments(prev => [...prev, newComment]);
+  // ── Fetch post + comments from Supabase ─────────────────────────────────────
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+
+      const [postResult, commentsResult] = await Promise.all([
+        supabase
+          .from('circuit_posts')
+          .select('*')
+          .eq('id', id)
+          .single(),
+        supabase
+          .from('canvas_comments')
+          .select('*, user:user_id(*)')
+          .eq('post_id', id)
+          .order('created_at', { ascending: true }),
+      ]);
+
+      if (postResult.error) {
+        setError(postResult.error.message);
+      } else {
+        setPost(postResult.data);
+        isLoadedRef.current = false;
+        setCircuitJson(postResult.data.circuit_json);
+        setArduinoCode(postResult.data.arduino_code ?? '');
+        // Mark as loaded after the state update settles
+        setTimeout(() => { isLoadedRef.current = true; }, 0);
+      }
+
+      if (!commentsResult.error) {
+        setComments(commentsResult.data);
+      }
+
+      setLoading(false);
+    }
+    fetchData();
+  }, [id]);
+
+  // ── Debounced save of circuit_json ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isLoadedRef.current || circuitJson === null) return;
+
+    setSaveStatus('saving');
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      const { error: err } = await supabase
+        .from('circuit_posts')
+        .update({ circuit_json: circuitJson })
+        .eq('id', id);
+
+      setSaveStatus(err ? 'error' : 'saved');
+    }, 800);
+
+    return () => clearTimeout(saveTimerRef.current);
+  }, [circuitJson, id]);
+
+  // ── Debounced save of arduino_code ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+
+    setSaveStatus('saving');
+    clearTimeout(codeTimerRef.current);
+    codeTimerRef.current = setTimeout(async () => {
+      const { error: err } = await supabase
+        .from('circuit_posts')
+        .update({ arduino_code: arduinoCode })
+        .eq('id', id);
+
+      setSaveStatus(err ? 'error' : 'saved');
+    }, 800);
+
+    return () => clearTimeout(codeTimerRef.current);
+  }, [arduinoCode, id]);
+
+  const handleAddComment = useCallback(async ({ x, y, body }) => {
+    const { data, error: err } = await supabase
+      .from('canvas_comments')
+      .insert({ post_id: id, user_id: CURRENT_USER.id, body, x_coord: x, y_coord: y })
+      .select('*, user:user_id(*)')
+      .single();
+
+    if (!err && data) {
+      setComments(prev => [...prev, data]);
+    }
     setCommentMode(false);
   }, [id]);
+
+  // ── Loading / error states ──────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-400 text-sm">
+        Loading circuit…
+      </div>
+    );
+  }
+
+  if (error || !post) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-red-400 text-sm">
+        {error ?? 'Post not found.'}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
@@ -49,6 +149,20 @@ export default function PostPage() {
             by @{post.user?.username} &middot; {post.short_description}
           </p>
         </div>
+
+        {/* Save status */}
+        {saveStatus && (
+          <span className={[
+            'text-xs font-medium shrink-0',
+            saveStatus === 'saving' ? 'text-gray-500' :
+            saveStatus === 'saved'  ? 'text-green-500' :
+                                      'text-red-400',
+          ].join(' ')}>
+            {saveStatus === 'saving' ? 'Saving…' :
+             saveStatus === 'saved'  ? 'Saved' :
+                                       'Save failed'}
+          </span>
+        )}
 
         {/* Toolbar actions */}
         <div className="flex items-center gap-2 shrink-0">
@@ -115,11 +229,14 @@ export default function PostPage() {
 
       {/* ── Arduino code panel ── */}
       {codeOpen && (
-        <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-5 py-3 max-h-44 overflow-auto">
+        <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-5 py-3">
           <p className="text-xs text-gray-500 font-medium mb-2 uppercase tracking-wide">Arduino Code</p>
-          <pre className="text-xs text-green-400 font-mono leading-relaxed whitespace-pre">
-            {post.arduino_code}
-          </pre>
+          <textarea
+            className="w-full h-36 bg-gray-950 text-green-400 font-mono text-xs leading-relaxed resize-none outline-none border border-gray-800 rounded p-2"
+            value={arduinoCode}
+            onChange={e => setArduinoCode(e.target.value)}
+            spellCheck={false}
+          />
         </div>
       )}
 
@@ -129,11 +246,12 @@ export default function PostPage() {
         style={{ marginRight: chatOpen ? '320px' : 0 }}
       >
         <CircuitCanvas
-          circuitJson={post.circuit_json}
+          circuitJson={circuitJson}
           comments={comments}
           commentMode={commentMode}
           onAddComment={handleAddComment}
           currentUser={CURRENT_USER}
+          onCircuitChange={setCircuitJson}
         />
       </div>
 
