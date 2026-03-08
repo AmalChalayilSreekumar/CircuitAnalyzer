@@ -3,6 +3,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { Routes, Route, useNavigate, useSearchParams } from "react-router-dom";
 import LandingPage, { CircuitCard } from "./LandingPage";
 import PostPage from "./pages/PostPage.jsx";
+import CreatePostPage from "./pages/CreatePostPage.jsx";
 import { createClient } from "@supabase/supabase-js";
 import "./App.css";
 
@@ -148,6 +149,7 @@ function App() {
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/search" element={<SearchPage />} />
       <Route path="/posts/:id" element={<PostPage />} />
+      <Route path="/create-post" element={<CreatePostPage />} />
     </Routes>
   );
 }

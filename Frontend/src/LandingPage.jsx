@@ -2,7 +2,7 @@ import "./LandingPage.css";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Home, Compass, Bookmark, User, Search, MessageCircle } from "lucide-react";
+import { Home, Compass, Bookmark, User, Search, MessageCircle, PlusCircle } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
@@ -177,6 +177,15 @@ export default function LandingPage() {
                 {label}
               </button>
             ))}
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <button
+                onClick={() => navigate(isAuthenticated ? "/create-post" : "/login")}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors text-left w-full bg-emerald-500 text-emerald-950 hover:bg-emerald-400"
+              >
+                <PlusCircle className="h-5 w-5" />
+                Create Post
+              </button>
+            </div>
           </nav>
         </aside>
 
