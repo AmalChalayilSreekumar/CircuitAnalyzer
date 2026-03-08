@@ -27,20 +27,19 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
     circuitJson?.hardware?.components ?? []
   );
 
-  // Guard to prevent onCircuitChange from echoing back when prop drives the update
-  const skipNextChangeRef = useRef(false);
+  // Track the last components array that came FROM the prop, so we can
+  // skip echoing it back to the parent (avoids loops without dropping user edits).
+  const lastPropComponentsRef = useRef(null);
 
   useEffect(() => {
-    skipNextChangeRef.current = true;
-    setComponents(circuitJson?.hardware?.components ?? []);
+    const incoming = circuitJson?.hardware?.components ?? [];
+    lastPropComponentsRef.current = incoming;
+    setComponents(incoming);
   }, [circuitJson]);
 
   // Notify parent whenever components change (from user edits, not from prop)
   useEffect(() => {
-    if (skipNextChangeRef.current) {
-      skipNextChangeRef.current = false;
-      return;
-    }
+    if (components === lastPropComponentsRef.current) return; // prop echo — skip
     onCircuitChange?.({ hardware: { components } });
   }, [components]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -246,7 +245,12 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
               onMouseDown={() => {}}
               onComponentClick={(e, id) => {
                 e.stopPropagation();
-                setSelectedCompId(prev => prev === id ? null : id);
+                const comp = components.find(c => c.id === id);
+                if (comp?.type === 'switch') {
+                  setComponents(prev => prev.map(c => c.id === id ? { ...c, closed: !c.closed } : c));
+                } else {
+                  setSelectedCompId(prev => prev === id ? null : id);
+                }
               }}
               onEndpointMouseDown={handleEndpointMouseDown}
               simulationStates={simulationStates}
@@ -334,6 +338,8 @@ export default function CircuitCanvas({ circuitJson, comments, commentMode, onAd
             <span className="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
               {selectedTool === 'led'
                 ? 'Click the anode (+) hole first · Esc to cancel'
+                : selectedTool === 'switch'
+                ? 'Click first hole to start placing the switch · Esc to cancel'
                 : `Click a hole or pin to start placing a ${selectedTool} · Esc to cancel`}
             </span>
           </div>

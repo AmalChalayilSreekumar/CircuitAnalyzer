@@ -157,11 +157,56 @@ function Battery({ s, e }) {
   );
 }
 
+function Switch({ s, e, closed }) {
+  const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+  const dx = e.x - s.x, dy = e.y - s.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len, uy = dy / len; // unit vector along wire
+  const px = -uy, py = ux;           // perpendicular (for open lever)
+
+  // Terminals: 14px from center on each side
+  const t1 = { x: mx - ux * 14, y: my - uy * 14 };
+  const t2 = { x: mx + ux * 14, y: my + uy * 14 };
+
+  const color = closed ? '#22c55e' : '#f59e0b';
+
+  // Open lever: pivot at t1, angled ~40° away from the wire plane
+  const leverTip = closed
+    ? t2
+    : { x: t1.x + ux * 22 + px * 14, y: t1.y + uy * 22 + py * 14 };
+
+  return (
+    <g style={{ cursor: 'pointer' }}>
+      {/* Lead wires */}
+      <line x1={s.x} y1={s.y} x2={t1.x} y2={t1.y} stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
+      <line x1={e.x} y1={e.y} x2={t2.x} y2={t2.y} stroke="#6b7280" strokeWidth={2.5} strokeLinecap="round" />
+      {/* Terminals */}
+      <circle cx={t1.x} cy={t1.y} r={3.5} fill={color} stroke="#fff" strokeWidth={0.5} />
+      <circle cx={t2.x} cy={t2.y} r={3.5} fill={color} stroke="#fff" strokeWidth={0.5} />
+      {/* Lever */}
+      <line
+        x1={t1.x} y1={t1.y}
+        x2={leverTip.x} y2={leverTip.y}
+        stroke={color} strokeWidth={2.5} strokeLinecap="round"
+      />
+      {/* State label */}
+      <text
+        x={mx + px * 16} y={my + py * 16}
+        fill={color} fontSize={7} fontWeight="bold"
+        textAnchor="middle" dominantBaseline="middle"
+        pointerEvents="none" fontFamily="monospace"
+      >
+        {closed ? 'ON' : 'OFF'}
+      </text>
+    </g>
+  );
+}
+
 // Led needs special treatment (simState prop), others are straightforward
 const SHAPES = { wire: Wire, resistor: Resistor, battery: Battery };
 
 // Component types whose endpoints can be dragged individually
-const ENDPOINT_DRAGGABLE = new Set(['led', 'resistor', 'wire', 'battery']);
+const ENDPOINT_DRAGGABLE = new Set(['led', 'resistor', 'wire', 'battery', 'switch']);
 
 // ── Selection highlight ────────────────────────────────────────────────────────
 
@@ -205,6 +250,8 @@ export default function CanvasComponents({ components, selectedId, editMode, onM
 
         const Shape = comp.type === 'led'
           ? <Led s={s} e={e} simState={simulationStates?.[comp.id]} />
+          : comp.type === 'switch'
+          ? <Switch s={s} e={e} closed={!!comp.closed} />
           : (() => { const S = SHAPES[comp.type] ?? Wire; return <S s={s} e={e} />; })();
 
         return (

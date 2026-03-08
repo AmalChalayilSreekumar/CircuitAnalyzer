@@ -107,6 +107,17 @@ export default function PostPage() {
     fetchData();
   }, [id]);
 
+  // ── Auto re-run simulation when circuit changes while sim is active ─────────
+  const simStatusRef = useRef(simStatus);
+  useEffect(() => { simStatusRef.current = simStatus; }, [simStatus]);
+
+  useEffect(() => {
+    if (!isLoadedRef.current || circuitJson === null) return;
+    if (simStatusRef.current === 'done') {
+      runSimulation();
+    }
+  }, [circuitJson]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Debounced save of circuit_json ──────────────────────────────────────────
   useEffect(() => {
     if (!isLoadedRef.current || circuitJson === null) return;

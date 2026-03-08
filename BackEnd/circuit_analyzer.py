@@ -117,7 +117,10 @@ def analyze_circuit(components: list[dict]) -> dict[str, LedAnalysis]:
                 uf.union(hole_key, net_key)
 
     # Step 2: For each component, union its two endpoints (the wire/resistor/LED connects them).
+    # Switches only connect when closed; an open switch breaks the circuit path.
     for comp in components:
+        if comp.get('type') == 'switch' and not comp.get('closed', False):
+            continue
         start_ep = comp.get('start', {})
         end_ep   = comp.get('end', {})
         if not start_ep or not end_ep:

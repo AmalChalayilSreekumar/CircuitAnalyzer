@@ -30,6 +30,19 @@ const ITEMS = [
     ),
   },
   {
+    type: 'switch',
+    label: 'Switch',
+    icon: (
+      <svg viewBox="0 0 32 32" className="w-6 h-6">
+        <line x1="4" y1="16" x2="11" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="21" y1="16" x2="28" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx="11" cy="16" r="2.5" fill="#f59e0b" />
+        <circle cx="21" cy="16" r="2.5" fill="#f59e0b" />
+        <line x1="11" y1="16" x2="20" y2="9" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     type: 'battery',
     label: 'Battery',
     icon: (
